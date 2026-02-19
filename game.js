@@ -15,6 +15,7 @@ const jumpPowerMax = -19;
 const maxChargeFrames = 28;
 const groundY = canvas.height - 110;
 const invincibleDuration = 360;
+const stageResetInvincible = 96;
 
 const perkPool = [
   {
@@ -117,6 +118,7 @@ const world = {
     chargeRank: 0,
     gravityScale: 1,
   },
+  perkRerolls: 1,
 };
 
 function resetGame() {
@@ -149,6 +151,7 @@ function resetGame() {
     chargeRank: 0,
     gravityScale: 1,
   };
+  world.perkRerolls = 1;
 
   player.y = groundY;
   player.vy = 0;
@@ -242,6 +245,8 @@ window.addEventListener("keydown", (e) => {
       choosePerk(1);
     } else if (e.code === "Digit3") {
       choosePerk(2);
+    } else if (e.code === "KeyR") {
+      rerollPerkChoices();
     }
   }
 });
@@ -290,6 +295,9 @@ function gainXp(amount) {
   world.xp += amount;
   if (world.xp >= world.nextLevelXp) {
     world.level += 1;
+    if (world.level % 3 === 0) {
+      world.perkRerolls += 1;
+    }
     world.xp -= world.nextLevelXp;
     world.nextLevelXp = Math.floor(world.nextLevelXp * 1.35);
     world.levelUpChoices = pickPerks(3);
@@ -308,9 +316,37 @@ function choosePerk(index) {
     return;
   }
   perk.apply();
+  resetStageAfterPerk();
   world.levelUpChoices = [];
   world.perkCardBounds = [];
   world.state = GAME_STATE.PLAYING;
+}
+
+
+function resetStageAfterPerk() {
+  world.obstacles = [];
+  world.items = [];
+  world.powerups = [];
+  world.effects = [];
+  world.obstacleTimer = 42;
+  world.itemTimer = 120;
+  world.powerupTimer = Math.max(world.powerupTimer, 220);
+  world.invincibleTimer = Math.max(world.invincibleTimer, stageResetInvincible);
+
+  player.y = groundY;
+  player.vy = 0;
+  player.onGround = true;
+  player.isCharging = false;
+  player.chargeFrames = 0;
+  player.airJumpsRemaining = world.perks.maxAirJumps;
+}
+
+function rerollPerkChoices() {
+  if (world.state !== GAME_STATE.LEVEL_UP || world.perkRerolls <= 0) {
+    return;
+  }
+  world.perkRerolls -= 1;
+  world.levelUpChoices = pickPerks(3);
 }
 
 function selectPerkByPointer(e) {
@@ -629,10 +665,11 @@ function drawHUD() {
   ctx.fillText(`LIFE ${world.lives}`, 24, 74);
   ctx.fillText(`LV ${world.level}`, 24, 108);
   ctx.fillText(`XP ${world.xp}/${world.nextLevelXp}`, 24, 142);
+  ctx.fillText(`REROLL ${world.perkRerolls}`, 24, 176);
 
   if (world.invincibleTimer > 0) {
     ctx.fillStyle = "#7ff";
-    ctx.fillText(`INV ${Math.ceil(world.invincibleTimer / 60)}`, 24, 176);
+    ctx.fillText(`INV ${Math.ceil(world.invincibleTimer / 60)}`, 24, 210);
   }
 }
 
@@ -641,6 +678,10 @@ function drawLevelUpOverlay() {
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
   drawCenteredLines([`LEVEL UP! ${world.level}`, "PERKを1つ選んで進化せよ"], 80, 36);
+  ctx.fillStyle = "#fff";
+  ctx.font = "18px 'Courier New', monospace";
+  ctx.textAlign = "center";
+  ctx.fillText(`Rキーでリロール (${world.perkRerolls}回)`, canvas.width / 2, 142);
 
   const cardW = 260;
   const cardH = 240;
