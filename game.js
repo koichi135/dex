@@ -121,6 +121,45 @@ const perkPool = [
       world.perks.gravityScale = Math.max(0.75, world.perks.gravityScale - 0.04);
     },
   },
+  {
+    id: "trail-dancer",
+    axis: PERK_AXIS.MOBILITY,
+    name: "TRAIL DANCER",
+    description: "空中ジャンプ+1、チャージ短縮。移動自由度を上げる",
+    apply: () => {
+      world.perks.maxAirJumps += 1;
+      world.perks.chargeTimeRank += 1;
+      player.airJumpsRemaining = world.perks.maxAirJumps;
+    },
+  },
+  {
+    id: "chain-blast",
+    axis: PERK_AXIS.BREAK,
+    name: "CHAIN BLAST",
+    description: "障害物破壊時、近くの障害物にも連鎖爆発",
+    apply: () => {
+      world.perks.chainBlastRank += 1;
+    },
+  },
+  {
+    id: "guardian-fur",
+    axis: PERK_AXIS.VITAL,
+    name: "GUARDIAN FUR",
+    description: "シールド+1。被弾時にライフの代わりに消費",
+    apply: () => {
+      world.perks.shieldCharges += 1;
+    },
+  },
+  {
+    id: "fever-instinct",
+    axis: PERK_AXIS.SPECIAL,
+    name: "FEVER INSTINCT",
+    description: "連続破壊コンボの持続と得点倍率を強化",
+    apply: () => {
+      world.perks.comboDecayBonus += 18;
+      world.perks.comboScoreBonus += 0.08;
+    },
+  },
 ];
 
 const player = {
@@ -158,6 +197,8 @@ const world = {
   nextLevelXp: 420,
   levelUpChoices: [],
   perkCardBounds: [],
+  comboCount: 0,
+  comboTimer: 0,
   perks: {
     speedRank: 0,
     maxAirJumps: 0,
@@ -172,6 +213,10 @@ const world = {
     gravityScale: 1,
     buddyKitten: false,
     hoverRank: 0,
+    chainBlastRank: 0,
+    shieldCharges: 0,
+    comboDecayBonus: 0,
+    comboScoreBonus: 0,
   },
   perkRerolls: 1,
   kitten: {
@@ -201,6 +246,8 @@ function resetGame() {
   world.nextLevelXp = 420;
   world.levelUpChoices = [];
   world.perkCardBounds = [];
+  world.comboCount = 0;
+  world.comboTimer = 0;
   world.perks = {
     speedRank: 0,
     maxAirJumps: 0,
@@ -215,6 +262,10 @@ function resetGame() {
     gravityScale: 1,
     buddyKitten: false,
     hoverRank: 0,
+    chainBlastRank: 0,
+    shieldCharges: 0,
+    comboDecayBonus: 0,
+    comboScoreBonus: 0,
   };
   world.perkRerolls = 1;
   world.kitten = {
@@ -241,6 +292,25 @@ function getChargeFrameLimit() {
 
 function getMaxHoverFrames() {
   return 36 + world.perks.hoverRank * 28;
+}
+
+function getComboWindowFrames() {
+  return 120 + world.perks.comboDecayBonus;
+}
+
+function resetCombo() {
+  world.comboCount = 0;
+  world.comboTimer = 0;
+}
+
+function addComboFromBreak() {
+  world.comboCount += 1;
+  world.comboTimer = getComboWindowFrames();
+}
+
+function getComboMultiplier() {
+  const stepBonus = Math.floor(world.comboCount / 3) * 0.25;
+  return 1 + Math.min(1.25, stepBonus + world.perks.comboScoreBonus);
 }
 
 function addKittenGrowthPoint(reason) {
@@ -477,6 +547,8 @@ function choosePerk(index) {
   resetStageAfterPerk();
   world.levelUpChoices = [];
   world.perkCardBounds = [];
+  world.comboCount = 0;
+  world.comboTimer = 0;
   world.state = GAME_STATE.PLAYING;
 }
 
@@ -539,14 +611,45 @@ function spawnBurst(x, y, power, color = "#fff", spread = 1) {
   }
 }
 
-function explodeObstacle(obstacle, extra = 0) {
+function triggerChainBlast(sourceObstacle) {
+  if (world.perks.chainBlastRank <= 0) {
+    return;
+  }
+
+  const sourceX = sourceObstacle.x + sourceObstacle.width / 2;
+  const sourceY = sourceObstacle.y + sourceObstacle.height / 2;
+  const radius = 76 + world.perks.chainBlastRank * 26;
+
+  world.obstacles.forEach((obstacle) => {
+    if (obstacle.hit || obstacle === sourceObstacle) {
+      return;
+    }
+    const centerX = obstacle.x + obstacle.width / 2;
+    const centerY = obstacle.y + obstacle.height / 2;
+    const dx = centerX - sourceX;
+    const dy = centerY - sourceY;
+    if (dx * dx + dy * dy > radius * radius) {
+      return;
+    }
+    obstacle.hit = true;
+    explodeObstacle(obstacle, world.perks.chainBlastRank * 2, false);
+  });
+}
+
+function explodeObstacle(obstacle, extra = 0, allowChain = true) {
   const centerX = obstacle.x + obstacle.width / 2;
   const centerY = obstacle.y + obstacle.height / 2;
   const power = 20 + world.perks.explosionPower + extra;
   spawnBurst(centerX, centerY, power, "#7ff", 2.8);
   spawnBurst(centerX, centerY, Math.floor(power * 0.7), "#fff", 1.6);
-  world.score += 18 + world.perks.explosionBonus;
-  gainXp(20);
+  addComboFromBreak();
+  const scoreGain = Math.floor((18 + world.perks.explosionBonus) * getComboMultiplier());
+  world.score += scoreGain;
+  gainXp(20 + Math.floor((world.comboCount - 1) * 1.4));
+
+  if (allowChain) {
+    triggerChainBlast(obstacle);
+  }
 }
 
 function updateEffects() {
@@ -650,6 +753,14 @@ function update() {
         return;
       }
 
+      resetCombo();
+      if (world.perks.shieldCharges > 0) {
+        world.perks.shieldCharges -= 1;
+        world.flashTime = 5;
+        spawnBurst(player.x + player.width / 2, player.y + player.height / 2, 16, "#fff", 1.2);
+        return;
+      }
+
       world.lives -= 1;
       world.flashTime = 8;
 
@@ -700,6 +811,12 @@ function update() {
 
   if (world.invincibleTimer > 0) {
     world.invincibleTimer -= 1;
+  }
+
+  if (world.comboTimer > 0) {
+    world.comboTimer -= 1;
+  } else if (world.comboCount > 0) {
+    world.comboCount = 0;
   }
 
   updateEffects();
@@ -875,6 +992,16 @@ function drawHUD() {
   if (world.invincibleTimer > 0) {
     ctx.fillStyle = "#7ff";
     ctx.fillText(`INV ${Math.ceil(world.invincibleTimer / 60)}`, 24, 210);
+  }
+
+  if (world.perks.shieldCharges > 0) {
+    ctx.fillStyle = "#fff";
+    ctx.fillText(`SHIELD ${world.perks.shieldCharges}`, 24, 244);
+  }
+
+  if (world.comboCount > 1 && world.comboTimer > 0) {
+    ctx.fillStyle = "#7ff";
+    ctx.fillText(`COMBO x${getComboMultiplier().toFixed(2)}`, 24, 278);
   }
 }
 
