@@ -1,4 +1,5 @@
 const canvas = document.getElementById("game");
+const touchJumpButton = document.getElementById("touch-jump");
 const ctx = canvas.getContext("2d");
 
 const GAME_STATE = {
@@ -101,6 +102,19 @@ canvas.addEventListener("pointerdown", onPressStart);
 canvas.addEventListener("pointerup", onPressEnd);
 canvas.addEventListener("pointercancel", onPressEnd);
 canvas.addEventListener("pointerleave", onPressEnd);
+
+if (touchJumpButton) {
+  touchJumpButton.addEventListener("pointerdown", (e) => {
+    e.preventDefault();
+    onPressStart();
+  });
+  touchJumpButton.addEventListener("pointerup", (e) => {
+    e.preventDefault();
+    onPressEnd();
+  });
+  touchJumpButton.addEventListener("pointercancel", onPressEnd);
+  touchJumpButton.addEventListener("pointerleave", onPressEnd);
+}
 
 const pressedKeys = new Set();
 window.addEventListener("keydown", (e) => {

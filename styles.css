@@ -20,6 +20,12 @@ body {
   aspect-ratio: 16 / 9;
   display: grid;
   place-items: center;
+  position: relative;
+}
+
+.canvas-wrap {
+  width: 100%;
+  height: 100%;
 }
 
 canvas {
@@ -30,4 +36,52 @@ canvas {
   border: 6px solid #fff;
   background: #000;
   touch-action: manipulation;
+}
+
+.touch-jump {
+  display: none;
+}
+
+@media (orientation: portrait) and (pointer: coarse) {
+  body {
+    display: block;
+    background: #000;
+  }
+
+  .game-shell {
+    width: 100vw;
+    min-height: 100vh;
+    aspect-ratio: auto;
+    grid-template-rows: minmax(0, 62vh) minmax(0, 38vh);
+    align-items: stretch;
+    gap: 8px;
+    padding: 8px;
+  }
+
+  .canvas-wrap {
+    min-height: 0;
+  }
+
+  canvas {
+    border-width: 4px;
+  }
+
+  .touch-jump {
+    display: grid;
+    place-items: center;
+    width: 100%;
+    border: 3px solid #fff;
+    background: #151515;
+    color: #fff;
+    font-family: "Courier New", monospace;
+    font-size: clamp(20px, 5vw, 28px);
+    letter-spacing: 0.08em;
+    touch-action: manipulation;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+
+  .touch-jump:active {
+    background: #2a2a2a;
+  }
 }
