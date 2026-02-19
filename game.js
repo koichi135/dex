@@ -13,11 +13,20 @@ const gravity = 0.8;
 const jumpPowerMin = -10;
 const jumpPowerMax = -19;
 const maxChargeFrames = 28;
+const minChargeFrames = 10;
 const groundY = canvas.height - 110;
 const invincibleDuration = 360;
 const stageResetInvincible = 96;
 
 const perkPool = [
+  {
+    id: "quick-charge",
+    name: "QUICK CHARGE",
+    description: "長押しジャンプの最大チャージ時間を短縮",
+    apply: () => {
+      world.perks.chargeTimeRank += 1;
+    },
+  },
   {
     id: "turbo-paws",
     name: "TURBO PAWS",
@@ -25,6 +34,24 @@ const perkPool = [
     apply: () => {
       world.perks.speedRank += 1;
       world.perks.explosionBonus += 15;
+    },
+  },
+  {
+    id: "buddy-kitten",
+    name: "BUDDY KITTEN",
+    description: "子猫が追従。成長3ptでエクストラライフ化",
+    apply: () => {
+      world.perks.buddyKitten = true;
+      world.kitten.active = true;
+    },
+  },
+  {
+    id: "sky-hover",
+    name: "SKY HOVER",
+    description: "空中長押しで一定時間ホバリングできる",
+    apply: () => {
+      world.perks.hoverRank += 1;
+      player.hoverFramesRemaining = getMaxHoverFrames();
     },
   },
   {
@@ -84,6 +111,8 @@ const player = {
   isCharging: false,
   chargeFrames: 0,
   airJumpsRemaining: 0,
+  isPressing: false,
+  hoverFramesRemaining: 0,
 };
 
 const world = {
@@ -116,9 +145,19 @@ const world = {
     explosionPower: 0,
     explosionBonus: 0,
     chargeRank: 0,
+    chargeTimeRank: 0,
     gravityScale: 1,
+    buddyKitten: false,
+    hoverRank: 0,
   },
   perkRerolls: 1,
+  kitten: {
+    active: false,
+    x: 70,
+    y: groundY + 20,
+    growthPoints: 0,
+    big: false,
+  },
 };
 
 function resetGame() {
@@ -149,9 +188,19 @@ function resetGame() {
     explosionPower: 0,
     explosionBonus: 0,
     chargeRank: 0,
+    chargeTimeRank: 0,
     gravityScale: 1,
+    buddyKitten: false,
+    hoverRank: 0,
   };
   world.perkRerolls = 1;
+  world.kitten = {
+    active: false,
+    x: 70,
+    y: groundY + 20,
+    growthPoints: 0,
+    big: false,
+  };
 
   player.y = groundY;
   player.vy = 0;
@@ -159,6 +208,42 @@ function resetGame() {
   player.isCharging = false;
   player.chargeFrames = 0;
   player.airJumpsRemaining = 0;
+  player.isPressing = false;
+  player.hoverFramesRemaining = 0;
+}
+
+function getChargeFrameLimit() {
+  return Math.max(minChargeFrames, maxChargeFrames - world.perks.chargeTimeRank * 4);
+}
+
+function getMaxHoverFrames() {
+  return 36 + world.perks.hoverRank * 28;
+}
+
+function addKittenGrowthPoint(reason) {
+  if (!world.perks.buddyKitten || !world.kitten.active || world.kitten.big) {
+    return;
+  }
+  world.kitten.growthPoints += 1;
+  spawnBurst(world.kitten.x + 10, world.kitten.y + 10, 8, "#fff", 1.5);
+  if (world.kitten.growthPoints >= 3) {
+    world.kitten.growthPoints = 3;
+    world.kitten.big = true;
+    spawnBurst(world.kitten.x + 24, world.kitten.y + 24, 24, "#7ff", 2.2);
+  }
+}
+
+function consumeKittenRevive() {
+  if (!world.perks.buddyKitten || !world.kitten.big) {
+    return false;
+  }
+  world.kitten.big = false;
+  world.kitten.growthPoints = 0;
+  world.lives = Math.max(1, Math.ceil(world.perks.maxLives / 2));
+  world.flashTime = 0;
+  world.invincibleTimer = stageResetInvincible;
+  resetStageAfterPerk();
+  return true;
 }
 
 function startGame() {
@@ -167,6 +252,10 @@ function startGame() {
 }
 
 function onPressStart(e) {
+  if (world.state === GAME_STATE.PLAYING) {
+    player.isPressing = true;
+  }
+
   if (world.state === GAME_STATE.TITLE) {
     startGame();
     return;
@@ -196,11 +285,13 @@ function onPressStart(e) {
 }
 
 function onPressEnd() {
+  player.isPressing = false;
+
   if (world.state !== GAME_STATE.PLAYING || !player.isCharging || !player.onGround) {
     return;
   }
 
-  const chargeRate = Math.min(1, player.chargeFrames / maxChargeFrames);
+  const chargeRate = Math.min(1, player.chargeFrames / getChargeFrameLimit());
   const boostedJumpMax = jumpPowerMax - world.perks.chargeRank * 1.1;
   const jumpPower = jumpPowerMin + (boostedJumpMax - jumpPowerMin) * chargeRate;
   player.vy = jumpPower;
@@ -301,6 +392,7 @@ function gainXp(amount) {
     world.xp -= world.nextLevelXp;
     world.nextLevelXp = Math.floor(world.nextLevelXp * 1.35);
     world.levelUpChoices = pickPerks(3);
+    addKittenGrowthPoint("level-up");
     world.state = GAME_STATE.LEVEL_UP;
   }
 }
@@ -339,6 +431,7 @@ function resetStageAfterPerk() {
   player.isCharging = false;
   player.chargeFrames = 0;
   player.airJumpsRemaining = world.perks.maxAirJumps;
+  player.hoverFramesRemaining = getMaxHoverFrames();
 }
 
 function rerollPerkChoices() {
@@ -432,10 +525,18 @@ function update() {
   gainXp(1);
 
   if (player.isCharging && player.onGround) {
-    player.chargeFrames = Math.min(maxChargeFrames, player.chargeFrames + 1);
+    player.chargeFrames = Math.min(getChargeFrameLimit(), player.chargeFrames + 1);
   }
 
-  player.vy += gravity * world.perks.gravityScale;
+  const hovering = world.perks.hoverRank > 0 && !player.onGround && player.isPressing && player.hoverFramesRemaining > 0;
+  if (hovering) {
+    player.vy += gravity * world.perks.gravityScale * 0.16;
+    player.vy = Math.min(player.vy, 1.1);
+    player.hoverFramesRemaining -= 1;
+    spawnBurst(player.x + player.width / 2, player.y + player.height, 1.2, "#7ff", 0.4);
+  } else {
+    player.vy += gravity * world.perks.gravityScale;
+  }
   player.y += player.vy;
 
   if (player.y >= groundY) {
@@ -443,6 +544,7 @@ function update() {
     player.vy = 0;
     player.onGround = true;
     player.airJumpsRemaining = world.perks.maxAirJumps;
+    player.hoverFramesRemaining = getMaxHoverFrames();
   }
 
   world.obstacleTimer -= 1;
@@ -486,6 +588,9 @@ function update() {
       world.flashTime = 8;
 
       if (world.lives <= 0) {
+        if (consumeKittenRevive()) {
+          return;
+        }
         world.best = Math.max(world.best, world.score);
         world.state = GAME_STATE.GAME_OVER;
       }
@@ -497,6 +602,9 @@ function update() {
 
     if (!item.taken && intersects(player, item)) {
       item.taken = true;
+      if (world.lives >= world.perks.maxLives) {
+        addKittenGrowthPoint("overheal");
+      }
       world.lives = Math.min(world.perks.maxLives, world.lives + 1);
       gainXp(26);
     }
@@ -508,6 +616,7 @@ function update() {
     if (!item.taken && intersects(player, item)) {
       item.taken = true;
       world.invincibleTimer = invincibleDuration + world.perks.invincibleBonus;
+      addKittenGrowthPoint("invincible");
       gainXp(30);
       spawnBurst(player.x + player.width / 2, player.y + player.height / 2, 18, "#7ff", 1.8);
     }
@@ -602,7 +711,37 @@ function drawCat() {
     const gaugeW = 42;
     ctx.strokeStyle = "#fff";
     ctx.strokeRect(x + 5, y - 12, gaugeW, 5);
-    ctx.fillRect(x + 6, y - 11, (gaugeW - 2) * (player.chargeFrames / maxChargeFrames), 3);
+    ctx.fillRect(x + 6, y - 11, (gaugeW - 2) * (player.chargeFrames / getChargeFrameLimit()), 3);
+  }
+}
+
+function drawBuddyKitten() {
+  if (!world.kitten.active) {
+    return;
+  }
+
+  const kittenSize = world.kitten.big ? player.width : 30;
+  const x = world.kitten.x;
+  const y = world.kitten.y;
+  const bodyH = world.kitten.big ? 26 : 16;
+  const headW = world.kitten.big ? 28 : 16;
+  const headH = world.kitten.big ? 18 : 12;
+
+  ctx.fillStyle = world.kitten.big ? "#7ff" : "#ddd";
+  ctx.fillRect(x + 4, y + 12, kittenSize - 8, bodyH);
+  ctx.fillRect(x + 8, y + 2, headW, headH);
+  ctx.fillRect(x + 8, y - 2, 6, 6);
+  ctx.fillRect(x + headW + 2, y - 2, 6, 6);
+
+  ctx.fillStyle = "#000";
+  ctx.fillRect(x + 12, y + 7, 3, 3);
+  ctx.fillRect(x + 20, y + 7, 3, 3);
+
+  if (!world.kitten.big) {
+    ctx.fillStyle = "#fff";
+    ctx.font = "14px 'Courier New', monospace";
+    ctx.textAlign = "left";
+    ctx.fillText(`${world.kitten.growthPoints}/3`, x, y - 8);
   }
 }
 
@@ -764,6 +903,7 @@ function render() {
   world.items.forEach(drawHeartItem);
   world.powerups.forEach(drawInvincibleItem);
   drawEffects();
+  drawBuddyKitten();
   drawCat();
   drawHUD();
 
@@ -782,6 +922,15 @@ function render() {
 
 function loop() {
   update();
+
+  if (world.kitten.active) {
+    const followDistance = world.kitten.big ? 80 : 56;
+    const targetX = player.x - followDistance;
+    const targetY = player.y + player.height - (world.kitten.big ? player.height : 30);
+    world.kitten.x += (targetX - world.kitten.x) * 0.18;
+    world.kitten.y += (targetY - world.kitten.y) * 0.2;
+  }
+
   render();
   requestAnimationFrame(loop);
 }
