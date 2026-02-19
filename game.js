@@ -8,8 +8,11 @@ const GAME_STATE = {
 };
 
 const gravity = 0.8;
-const jumpPower = -14;
+const jumpPowerMin = -10;
+const jumpPowerMax = -19;
+const maxChargeFrames = 28;
 const groundY = canvas.height - 110;
+const invincibleDuration = 360;
 
 const player = {
   x: 120,
@@ -19,6 +22,8 @@ const player = {
   vy: 0,
   onGround: true,
   frame: 0,
+  isCharging: false,
+  chargeFrames: 0,
 };
 
 const world = {
@@ -28,10 +33,13 @@ const world = {
   lives: 3,
   obstacles: [],
   items: [],
+  powerups: [],
   obstacleTimer: 0,
   itemTimer: 0,
+  powerupTimer: 0,
   state: GAME_STATE.TITLE,
   flashTime: 0,
+  invincibleTimer: 0,
 };
 
 function resetGame() {
@@ -40,13 +48,18 @@ function resetGame() {
   world.lives = 3;
   world.obstacles = [];
   world.items = [];
+  world.powerups = [];
   world.obstacleTimer = 0;
   world.itemTimer = 0;
+  world.powerupTimer = 200;
   world.flashTime = 0;
+  world.invincibleTimer = 0;
 
   player.y = groundY;
   player.vy = 0;
   player.onGround = true;
+  player.isCharging = false;
+  player.chargeFrames = 0;
 }
 
 function startGame() {
@@ -54,7 +67,7 @@ function startGame() {
   world.state = GAME_STATE.PLAYING;
 }
 
-function onTap() {
+function onPressStart() {
   if (world.state === GAME_STATE.TITLE) {
     startGame();
     return;
@@ -65,24 +78,53 @@ function onTap() {
     return;
   }
 
-  if (player.onGround) {
-    player.vy = jumpPower;
-    player.onGround = false;
+  if (player.onGround && !player.isCharging) {
+    player.isCharging = true;
+    player.chargeFrames = 0;
   }
 }
 
-canvas.addEventListener("pointerdown", onTap);
+function onPressEnd() {
+  if (world.state !== GAME_STATE.PLAYING || !player.isCharging || !player.onGround) {
+    return;
+  }
+
+  const chargeRate = Math.min(1, player.chargeFrames / maxChargeFrames);
+  const jumpPower = jumpPowerMin + (jumpPowerMax - jumpPowerMin) * chargeRate;
+  player.vy = jumpPower;
+  player.onGround = false;
+  player.isCharging = false;
+  player.chargeFrames = 0;
+}
+
+canvas.addEventListener("pointerdown", onPressStart);
+canvas.addEventListener("pointerup", onPressEnd);
+canvas.addEventListener("pointercancel", onPressEnd);
+canvas.addEventListener("pointerleave", onPressEnd);
+
+const pressedKeys = new Set();
 window.addEventListener("keydown", (e) => {
   if (e.code === "Space" || e.code === "ArrowUp") {
     e.preventDefault();
-    onTap();
+    if (pressedKeys.has(e.code)) {
+      return;
+    }
+    pressedKeys.add(e.code);
+    onPressStart();
+  }
+});
+window.addEventListener("keyup", (e) => {
+  if (e.code === "Space" || e.code === "ArrowUp") {
+    e.preventDefault();
+    pressedKeys.delete(e.code);
+    onPressEnd();
   }
 });
 
-function createObstacle() {
-  const size = 42 + Math.random() * 18;
+function createObstacle(offsetX = 0, sizeScale = 1) {
+  const size = (42 + Math.random() * 18) * sizeScale;
   world.obstacles.push({
-    x: canvas.width + 20,
+    x: canvas.width + 20 + offsetX,
     y: groundY + player.height - size,
     width: size,
     height: size,
@@ -90,12 +132,23 @@ function createObstacle() {
   });
 }
 
-function createItem() {
+function createHeartItem() {
   const yBase = groundY - 120 - Math.random() * 120;
   world.items.push({
     x: canvas.width + 20,
     y: yBase,
     width: 34,
+    height: 30,
+    taken: false,
+  });
+}
+
+function createInvincibleItem() {
+  const yBase = groundY - 150 - Math.random() * 140;
+  world.powerups.push({
+    x: canvas.width + 20,
+    y: yBase,
+    width: 30,
     height: 30,
     taken: false,
   });
@@ -107,7 +160,12 @@ function update() {
   }
 
   world.score += 1;
-  world.speed += 0.0006;
+  world.speed += 0.0007;
+  const difficulty = Math.floor(world.score / 650);
+
+  if (player.isCharging && player.onGround) {
+    player.chargeFrames = Math.min(maxChargeFrames, player.chargeFrames + 1);
+  }
 
   player.vy += gravity;
   player.y += player.vy;
@@ -121,13 +179,27 @@ function update() {
   world.obstacleTimer -= 1;
   if (world.obstacleTimer <= 0) {
     createObstacle();
-    world.obstacleTimer = 56 + Math.random() * 45;
+    if (difficulty >= 1 && Math.random() < Math.min(0.65, 0.2 + difficulty * 0.08)) {
+      createObstacle(68 + Math.random() * 40, 0.78 + Math.random() * 0.18);
+    }
+    if (difficulty >= 3 && Math.random() < 0.22) {
+      createObstacle(160 + Math.random() * 48, 0.7 + Math.random() * 0.15);
+    }
+    const minInterval = Math.max(24, 56 - difficulty * 4.5);
+    const variableInterval = Math.max(18, 45 - difficulty * 2.5);
+    world.obstacleTimer = minInterval + Math.random() * variableInterval;
   }
 
   world.itemTimer -= 1;
   if (world.itemTimer <= 0) {
-    createItem();
+    createHeartItem();
     world.itemTimer = 250 + Math.random() * 180;
+  }
+
+  world.powerupTimer -= 1;
+  if (world.powerupTimer <= 0) {
+    createInvincibleItem();
+    world.powerupTimer = 520 + Math.random() * 260;
   }
 
   world.obstacles.forEach((obstacle) => {
@@ -135,6 +207,11 @@ function update() {
 
     if (!obstacle.hit && intersects(player, obstacle)) {
       obstacle.hit = true;
+
+      if (world.invincibleTimer > 0) {
+        return;
+      }
+
       world.lives -= 1;
       world.flashTime = 8;
 
@@ -154,11 +231,25 @@ function update() {
     }
   });
 
-  world.obstacles = world.obstacles.filter((o) => o.x + o.width > -20);
+  world.powerups.forEach((item) => {
+    item.x -= world.speed;
+
+    if (!item.taken && intersects(player, item)) {
+      item.taken = true;
+      world.invincibleTimer = invincibleDuration;
+    }
+  });
+
+  world.obstacles = world.obstacles.filter((o) => o.x + o.width > -20 && !o.hit);
   world.items = world.items.filter((i) => !i.taken && i.x + i.width > -20);
+  world.powerups = world.powerups.filter((i) => !i.taken && i.x + i.width > -20);
 
   if (world.flashTime > 0) {
     world.flashTime -= 1;
+  }
+
+  if (world.invincibleTimer > 0) {
+    world.invincibleTimer -= 1;
   }
 
   player.frame += 0.25;
@@ -192,7 +283,11 @@ function drawCat() {
   const y = player.y;
   const runPhase = Math.floor(player.frame) % 2;
 
-  ctx.fillStyle = world.flashTime > 0 ? "#888" : "#fff";
+  if (world.invincibleTimer > 0) {
+    ctx.fillStyle = world.invincibleTimer % 8 < 4 ? "#fff" : "#7ff";
+  } else {
+    ctx.fillStyle = world.flashTime > 0 ? "#888" : "#fff";
+  }
 
   ctx.fillRect(x + 6, y + 18, 40, 26);
   ctx.fillRect(x + 12, y + 4, 28, 18);
@@ -213,8 +308,16 @@ function drawCat() {
   ctx.fillRect(x + 24, y + 14, 4, 3);
 
   // tail
-  ctx.fillStyle = "#fff";
+  ctx.fillStyle = world.invincibleTimer > 0 ? "#7ff" : "#fff";
   ctx.fillRect(x, y + 24, 8, 5);
+
+  if (player.isCharging && player.onGround) {
+    ctx.fillStyle = "#fff";
+    const gaugeW = 42;
+    ctx.strokeStyle = "#fff";
+    ctx.strokeRect(x + 5, y - 12, gaugeW, 5);
+    ctx.fillRect(x + 6, y - 11, (gaugeW - 2) * (player.chargeFrames / maxChargeFrames), 3);
+  }
 }
 
 function drawCucumber(obstacle) {
@@ -228,14 +331,44 @@ function drawCucumber(obstacle) {
   ctx.fillRect(obstacle.x + cut * 3, obstacle.y + 6, 4, obstacle.height - 12);
 }
 
-function drawCatCan(item) {
+function drawHeartItem(item) {
+  const x = item.x;
+  const y = item.y;
+
   ctx.fillStyle = "#fff";
-  ctx.fillRect(item.x, item.y, item.width, item.height);
+  ctx.beginPath();
+  ctx.moveTo(x + item.width / 2, y + item.height);
+  ctx.bezierCurveTo(x - 4, y + item.height * 0.62, x + 2, y + item.height * 0.16, x + item.width * 0.3, y + item.height * 0.25);
+  ctx.bezierCurveTo(x + item.width * 0.44, y - 2, x + item.width * 0.56, y - 2, x + item.width * 0.7, y + item.height * 0.25);
+  ctx.bezierCurveTo(x + item.width - 2, y + item.height * 0.16, x + item.width + 4, y + item.height * 0.62, x + item.width / 2, y + item.height);
+  ctx.fill();
+}
+
+function drawInvincibleItem(item) {
+  const cx = item.x + item.width / 2;
+  const cy = item.y + item.height / 2;
+  const outer = item.width / 2;
+  const inner = outer * 0.44;
+
+  ctx.fillStyle = "#7ff";
+  ctx.beginPath();
+  for (let i = 0; i < 10; i += 1) {
+    const angle = -Math.PI / 2 + (Math.PI * i) / 5;
+    const radius = i % 2 === 0 ? outer : inner;
+    const px = cx + Math.cos(angle) * radius;
+    const py = cy + Math.sin(angle) * radius;
+    if (i === 0) {
+      ctx.moveTo(px, py);
+    } else {
+      ctx.lineTo(px, py);
+    }
+  }
+  ctx.closePath();
+  ctx.fill();
 
   ctx.fillStyle = "#000";
-  ctx.fillRect(item.x + 6, item.y + 8, item.width - 12, 3);
-  ctx.fillRect(item.x + 6, item.y + 15, item.width - 12, 3);
-  ctx.fillRect(item.x + 10, item.y + 21, item.width - 20, 4);
+  ctx.fillRect(cx - 2, cy - 6, 4, 12);
+  ctx.fillRect(cx - 6, cy - 2, 12, 4);
 }
 
 function drawHUD() {
@@ -244,6 +377,11 @@ function drawHUD() {
   ctx.textAlign = "left";
   ctx.fillText(`SCORE ${world.score}`, 24, 40);
   ctx.fillText(`LIFE ${world.lives}`, 24, 74);
+
+  if (world.invincibleTimer > 0) {
+    ctx.fillStyle = "#7ff";
+    ctx.fillText(`INV ${Math.ceil(world.invincibleTimer / 60)}`, 24, 108);
+  }
 }
 
 function drawCenteredLines(lines, top, size = 34) {
@@ -256,12 +394,12 @@ function drawCenteredLines(lines, top, size = 34) {
 }
 
 function drawTitle() {
-  drawCenteredLines(["NEKO RUNNER", "TAP TO START"], 200);
+  drawCenteredLines(["NEKO RUNNER", "HOLD TO CHARGE JUMP", "TAP TO START"], 170);
   ctx.font = "22px 'Courier New', monospace";
   ctx.fillStyle = "#fff";
   ctx.textAlign = "center";
-  ctx.fillText("TAP / SPACE : JUMP", canvas.width / 2, 360);
-  ctx.fillText("AVOID CUCUMBERS, GET CAT CANS", canvas.width / 2, 398);
+  ctx.fillText("HOLD SPACE / TAP : HIGHER JUMP", canvas.width / 2, 356);
+  ctx.fillText("GET HEARTS + STAR (INVINCIBLE)", canvas.width / 2, 392);
 }
 
 function drawGameOver() {
@@ -279,7 +417,8 @@ function render() {
   drawBackground();
 
   world.obstacles.forEach(drawCucumber);
-  world.items.forEach(drawCatCan);
+  world.items.forEach(drawHeartItem);
+  world.powerups.forEach(drawInvincibleItem);
   drawCat();
   drawHUD();
 
