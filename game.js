@@ -5,6 +5,7 @@ const ctx = canvas.getContext("2d");
 const GAME_STATE = {
   TITLE: "title",
   PLAYING: "playing",
+  LEVEL_UP: "level_up",
   GAME_OVER: "game_over",
 };
 
@@ -14,6 +15,62 @@ const jumpPowerMax = -19;
 const maxChargeFrames = 28;
 const groundY = canvas.height - 110;
 const invincibleDuration = 360;
+
+const perkPool = [
+  {
+    id: "turbo-paws",
+    name: "TURBO PAWS",
+    description: "+走行速度アップ + 障害物を吹き飛ばした時の得点増加",
+    apply: () => {
+      world.perks.speedRank += 1;
+      world.perks.explosionBonus += 15;
+    },
+  },
+  {
+    id: "air-hop",
+    name: "AIR HOP",
+    description: "空中ジャンプ回数+1、空中でも攻められる",
+    apply: () => {
+      world.perks.maxAirJumps += 1;
+      player.airJumpsRemaining = world.perks.maxAirJumps;
+    },
+  },
+  {
+    id: "star-eater",
+    name: "STAR EATER",
+    description: "無敵時間+1秒。無敵中の衝突爆発がより派手に",
+    apply: () => {
+      world.perks.invincibleBonus += 60;
+      world.perks.explosionPower += 4;
+    },
+  },
+  {
+    id: "cat-missile",
+    name: "CAT MISSILE",
+    description: "一定間隔で前方障害物をロックオン爆破",
+    apply: () => {
+      world.perks.missileRank += 1;
+    },
+  },
+  {
+    id: "heart-engine",
+    name: "HEART ENGINE",
+    description: "最大ライフ+1、今すぐ1回復",
+    apply: () => {
+      world.perks.maxLives += 1;
+      world.lives = Math.min(world.perks.maxLives, world.lives + 1);
+    },
+  },
+  {
+    id: "overcharge",
+    name: "OVERCHARGE",
+    description: "長押しジャンプの上限強化、重力を少し軽減",
+    apply: () => {
+      world.perks.chargeRank += 1;
+      world.perks.gravityScale = Math.max(0.75, world.perks.gravityScale - 0.04);
+    },
+  },
+];
 
 const player = {
   x: 120,
@@ -25,6 +82,7 @@ const player = {
   frame: 0,
   isCharging: false,
   chargeFrames: 0,
+  airJumpsRemaining: 0,
 };
 
 const world = {
@@ -35,12 +93,30 @@ const world = {
   obstacles: [],
   items: [],
   powerups: [],
+  effects: [],
   obstacleTimer: 0,
   itemTimer: 0,
   powerupTimer: 0,
   state: GAME_STATE.TITLE,
   flashTime: 0,
   invincibleTimer: 0,
+  level: 1,
+  xp: 0,
+  nextLevelXp: 420,
+  levelUpChoices: [],
+  perkCardBounds: [],
+  perks: {
+    speedRank: 0,
+    maxAirJumps: 0,
+    invincibleBonus: 0,
+    missileRank: 0,
+    missileCooldown: 0,
+    maxLives: 5,
+    explosionPower: 0,
+    explosionBonus: 0,
+    chargeRank: 0,
+    gravityScale: 1,
+  },
 };
 
 function resetGame() {
@@ -50,17 +126,36 @@ function resetGame() {
   world.obstacles = [];
   world.items = [];
   world.powerups = [];
+  world.effects = [];
   world.obstacleTimer = 0;
   world.itemTimer = 0;
   world.powerupTimer = 200;
   world.flashTime = 0;
   world.invincibleTimer = 0;
+  world.level = 1;
+  world.xp = 0;
+  world.nextLevelXp = 420;
+  world.levelUpChoices = [];
+  world.perkCardBounds = [];
+  world.perks = {
+    speedRank: 0,
+    maxAirJumps: 0,
+    invincibleBonus: 0,
+    missileRank: 0,
+    missileCooldown: 0,
+    maxLives: 5,
+    explosionPower: 0,
+    explosionBonus: 0,
+    chargeRank: 0,
+    gravityScale: 1,
+  };
 
   player.y = groundY;
   player.vy = 0;
   player.onGround = true;
   player.isCharging = false;
   player.chargeFrames = 0;
+  player.airJumpsRemaining = 0;
 }
 
 function startGame() {
@@ -68,14 +163,26 @@ function startGame() {
   world.state = GAME_STATE.PLAYING;
 }
 
-function onPressStart() {
+function onPressStart(e) {
   if (world.state === GAME_STATE.TITLE) {
     startGame();
     return;
   }
 
+  if (world.state === GAME_STATE.LEVEL_UP) {
+    selectPerkByPointer(e);
+    return;
+  }
+
   if (world.state === GAME_STATE.GAME_OVER) {
     world.state = GAME_STATE.TITLE;
+    return;
+  }
+
+  if (!player.onGround && player.airJumpsRemaining > 0) {
+    player.vy = -13 - world.perks.chargeRank * 0.45;
+    player.airJumpsRemaining -= 1;
+    spawnBurst(player.x + player.width / 2, player.y + player.height / 2, 14, "#7ff", 2.4);
     return;
   }
 
@@ -91,7 +198,8 @@ function onPressEnd() {
   }
 
   const chargeRate = Math.min(1, player.chargeFrames / maxChargeFrames);
-  const jumpPower = jumpPowerMin + (jumpPowerMax - jumpPowerMin) * chargeRate;
+  const boostedJumpMax = jumpPowerMax - world.perks.chargeRank * 1.1;
+  const jumpPower = jumpPowerMin + (boostedJumpMax - jumpPowerMin) * chargeRate;
   player.vy = jumpPower;
   player.onGround = false;
   player.isCharging = false;
@@ -124,7 +232,17 @@ window.addEventListener("keydown", (e) => {
       return;
     }
     pressedKeys.add(e.code);
-    onPressStart();
+    onPressStart(e);
+  }
+
+  if (world.state === GAME_STATE.LEVEL_UP) {
+    if (e.code === "Digit1") {
+      choosePerk(0);
+    } else if (e.code === "Digit2") {
+      choosePerk(1);
+    } else if (e.code === "Digit3") {
+      choosePerk(2);
+    }
   }
 });
 window.addEventListener("keyup", (e) => {
@@ -168,26 +286,127 @@ function createInvincibleItem() {
   });
 }
 
+function gainXp(amount) {
+  world.xp += amount;
+  if (world.xp >= world.nextLevelXp) {
+    world.level += 1;
+    world.xp -= world.nextLevelXp;
+    world.nextLevelXp = Math.floor(world.nextLevelXp * 1.35);
+    world.levelUpChoices = pickPerks(3);
+    world.state = GAME_STATE.LEVEL_UP;
+  }
+}
+
+function pickPerks(count) {
+  const shuffled = [...perkPool].sort(() => Math.random() - 0.5);
+  return shuffled.slice(0, count);
+}
+
+function choosePerk(index) {
+  const perk = world.levelUpChoices[index];
+  if (!perk) {
+    return;
+  }
+  perk.apply();
+  world.levelUpChoices = [];
+  world.perkCardBounds = [];
+  world.state = GAME_STATE.PLAYING;
+}
+
+function selectPerkByPointer(e) {
+  if (!e) {
+    return;
+  }
+  const rect = canvas.getBoundingClientRect();
+  const px = ((e.clientX - rect.left) / rect.width) * canvas.width;
+  const py = ((e.clientY - rect.top) / rect.height) * canvas.height;
+  world.perkCardBounds.forEach((card, index) => {
+    if (px >= card.x && px <= card.x + card.w && py >= card.y && py <= card.y + card.h) {
+      choosePerk(index);
+    }
+  });
+}
+
+function spawnBurst(x, y, power, color = "#fff", spread = 1) {
+  const count = Math.floor(power + Math.random() * power * 0.7);
+  for (let i = 0; i < count; i += 1) {
+    const angle = Math.random() * Math.PI * 2;
+    const speed = 1 + Math.random() * (power / 4) * spread;
+    world.effects.push({
+      x,
+      y,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed - 0.6,
+      life: 25 + Math.random() * 24,
+      color,
+      size: 2 + Math.random() * 4,
+    });
+  }
+}
+
+function explodeObstacle(obstacle, extra = 0) {
+  const centerX = obstacle.x + obstacle.width / 2;
+  const centerY = obstacle.y + obstacle.height / 2;
+  const power = 20 + world.perks.explosionPower + extra;
+  spawnBurst(centerX, centerY, power, "#7ff", 2.8);
+  spawnBurst(centerX, centerY, Math.floor(power * 0.7), "#fff", 1.6);
+  world.score += 18 + world.perks.explosionBonus;
+  gainXp(20);
+}
+
+function updateEffects() {
+  world.effects.forEach((particle) => {
+    particle.x += particle.vx;
+    particle.y += particle.vy;
+    particle.vy += 0.06;
+    particle.vx *= 0.98;
+    particle.life -= 1;
+  });
+  world.effects = world.effects.filter((particle) => particle.life > 0);
+}
+
+function fireMissileIfNeeded() {
+  if (world.perks.missileRank <= 0 || world.obstacles.length === 0) {
+    return;
+  }
+
+  world.perks.missileCooldown -= 1;
+  if (world.perks.missileCooldown > 0) {
+    return;
+  }
+
+  const target = world.obstacles.find((o) => o.x > player.x + player.width - 10);
+  if (!target) {
+    return;
+  }
+
+  target.hit = true;
+  explodeObstacle(target, world.perks.missileRank * 3);
+  world.perks.missileCooldown = Math.max(45, 220 - world.perks.missileRank * 24);
+}
+
 function update() {
   if (world.state !== GAME_STATE.PLAYING) {
     return;
   }
 
   world.score += 1;
-  world.speed += 0.0007;
+  world.speed += 0.0007 + world.perks.speedRank * 0.00012;
   const difficulty = Math.floor(world.score / 650);
+  gainXp(1);
 
   if (player.isCharging && player.onGround) {
     player.chargeFrames = Math.min(maxChargeFrames, player.chargeFrames + 1);
   }
 
-  player.vy += gravity;
+  player.vy += gravity * world.perks.gravityScale;
   player.y += player.vy;
 
   if (player.y >= groundY) {
     player.y = groundY;
     player.vy = 0;
     player.onGround = true;
+    player.airJumpsRemaining = world.perks.maxAirJumps;
   }
 
   world.obstacleTimer -= 1;
@@ -223,6 +442,7 @@ function update() {
       obstacle.hit = true;
 
       if (world.invincibleTimer > 0) {
+        explodeObstacle(obstacle);
         return;
       }
 
@@ -241,7 +461,8 @@ function update() {
 
     if (!item.taken && intersects(player, item)) {
       item.taken = true;
-      world.lives = Math.min(5, world.lives + 1);
+      world.lives = Math.min(world.perks.maxLives, world.lives + 1);
+      gainXp(26);
     }
   });
 
@@ -250,9 +471,13 @@ function update() {
 
     if (!item.taken && intersects(player, item)) {
       item.taken = true;
-      world.invincibleTimer = invincibleDuration;
+      world.invincibleTimer = invincibleDuration + world.perks.invincibleBonus;
+      gainXp(30);
+      spawnBurst(player.x + player.width / 2, player.y + player.height / 2, 18, "#7ff", 1.8);
     }
   });
+
+  fireMissileIfNeeded();
 
   world.obstacles = world.obstacles.filter((o) => o.x + o.width > -20 && !o.hit);
   world.items = world.items.filter((i) => !i.taken && i.x + i.width > -20);
@@ -266,7 +491,18 @@ function update() {
     world.invincibleTimer -= 1;
   }
 
+  updateEffects();
+
   player.frame += 0.25;
+}
+
+function drawEffects() {
+  world.effects.forEach((particle) => {
+    ctx.globalAlpha = Math.max(0, particle.life / 36);
+    ctx.fillStyle = particle.color;
+    ctx.fillRect(particle.x, particle.y, particle.size, particle.size);
+  });
+  ctx.globalAlpha = 1;
 }
 
 function intersects(a, b) {
@@ -391,11 +627,64 @@ function drawHUD() {
   ctx.textAlign = "left";
   ctx.fillText(`SCORE ${world.score}`, 24, 40);
   ctx.fillText(`LIFE ${world.lives}`, 24, 74);
+  ctx.fillText(`LV ${world.level}`, 24, 108);
+  ctx.fillText(`XP ${world.xp}/${world.nextLevelXp}`, 24, 142);
 
   if (world.invincibleTimer > 0) {
     ctx.fillStyle = "#7ff";
-    ctx.fillText(`INV ${Math.ceil(world.invincibleTimer / 60)}`, 24, 108);
+    ctx.fillText(`INV ${Math.ceil(world.invincibleTimer / 60)}`, 24, 176);
   }
+}
+
+function drawLevelUpOverlay() {
+  ctx.fillStyle = "rgba(0,0,0,0.78)";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  drawCenteredLines([`LEVEL UP! ${world.level}`, "PERKを1つ選んで進化せよ"], 80, 36);
+
+  const cardW = 260;
+  const cardH = 240;
+  const gap = 34;
+  const startX = (canvas.width - cardW * 3 - gap * 2) / 2;
+  const y = 170;
+  world.perkCardBounds = [];
+
+  world.levelUpChoices.forEach((perk, index) => {
+    const x = startX + index * (cardW + gap);
+    world.perkCardBounds.push({ x, y, w: cardW, h: cardH });
+
+    ctx.fillStyle = "#111";
+    ctx.fillRect(x, y, cardW, cardH);
+    ctx.strokeStyle = "#fff";
+    ctx.lineWidth = 3;
+    ctx.strokeRect(x, y, cardW, cardH);
+
+    ctx.fillStyle = "#7ff";
+    ctx.font = "20px 'Courier New', monospace";
+    ctx.textAlign = "left";
+    ctx.fillText(`[${index + 1}] ${perk.name}`, x + 14, y + 36);
+
+    ctx.fillStyle = "#fff";
+    ctx.font = "18px 'Courier New', monospace";
+    wrapText(perk.description, x + 14, y + 76, cardW - 28, 30);
+  });
+}
+
+function wrapText(text, x, y, maxWidth, lineHeight) {
+  const words = text.split(" ");
+  let line = "";
+  let lineIndex = 0;
+  for (let i = 0; i < words.length; i += 1) {
+    const testLine = `${line}${words[i]} `;
+    if (ctx.measureText(testLine).width > maxWidth && i > 0) {
+      ctx.fillText(line.trim(), x, y + lineIndex * lineHeight);
+      line = `${words[i]} `;
+      lineIndex += 1;
+    } else {
+      line = testLine;
+    }
+  }
+  ctx.fillText(line.trim(), x, y + lineIndex * lineHeight);
 }
 
 function drawCenteredLines(lines, top, size = 34) {
@@ -433,6 +722,7 @@ function render() {
   world.obstacles.forEach(drawCucumber);
   world.items.forEach(drawHeartItem);
   world.powerups.forEach(drawInvincibleItem);
+  drawEffects();
   drawCat();
   drawHUD();
 
@@ -442,6 +732,10 @@ function render() {
 
   if (world.state === GAME_STATE.GAME_OVER) {
     drawGameOver();
+  }
+
+  if (world.state === GAME_STATE.LEVEL_UP) {
+    drawLevelUpOverlay();
   }
 }
 
