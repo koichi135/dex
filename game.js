@@ -18,9 +18,24 @@ const groundY = canvas.height - 110;
 const invincibleDuration = 360;
 const stageResetInvincible = 96;
 
+const PERK_AXIS = {
+  MOBILITY: "mobility",
+  BREAK: "break",
+  VITAL: "vital",
+  SPECIAL: "special",
+};
+
+const perkAxisLabels = {
+  [PERK_AXIS.MOBILITY]: "移動",
+  [PERK_AXIS.BREAK]: "破壊",
+  [PERK_AXIS.VITAL]: "ライフ",
+  [PERK_AXIS.SPECIAL]: "特殊",
+};
+
 const perkPool = [
   {
     id: "quick-charge",
+    axis: PERK_AXIS.MOBILITY,
     name: "QUICK CHARGE",
     description: "長押しジャンプの最大チャージ時間を短縮",
     apply: () => {
@@ -29,6 +44,7 @@ const perkPool = [
   },
   {
     id: "turbo-paws",
+    axis: PERK_AXIS.BREAK,
     name: "TURBO PAWS",
     description: "+走行速度アップ + 障害物を吹き飛ばした時の得点増加",
     apply: () => {
@@ -38,6 +54,7 @@ const perkPool = [
   },
   {
     id: "buddy-kitten",
+    axis: PERK_AXIS.SPECIAL,
     name: "BUDDY KITTEN",
     description: "子猫が追従。成長3ptでエクストラライフ化",
     apply: () => {
@@ -47,6 +64,7 @@ const perkPool = [
   },
   {
     id: "sky-hover",
+    axis: PERK_AXIS.MOBILITY,
     name: "SKY HOVER",
     description: "空中長押しで一定時間ホバリングできる",
     apply: () => {
@@ -56,6 +74,7 @@ const perkPool = [
   },
   {
     id: "air-hop",
+    axis: PERK_AXIS.MOBILITY,
     name: "AIR HOP",
     description: "空中ジャンプ回数+1、空中でも攻められる",
     apply: () => {
@@ -65,6 +84,7 @@ const perkPool = [
   },
   {
     id: "star-eater",
+    axis: PERK_AXIS.BREAK,
     name: "STAR EATER",
     description: "無敵時間+1秒。無敵中の衝突爆発がより派手に",
     apply: () => {
@@ -74,6 +94,7 @@ const perkPool = [
   },
   {
     id: "cat-missile",
+    axis: PERK_AXIS.BREAK,
     name: "CAT MISSILE",
     description: "一定間隔で前方障害物をロックオン爆破",
     apply: () => {
@@ -82,6 +103,7 @@ const perkPool = [
   },
   {
     id: "heart-engine",
+    axis: PERK_AXIS.VITAL,
     name: "HEART ENGINE",
     description: "最大ライフ+1、今すぐ1回復",
     apply: () => {
@@ -91,6 +113,7 @@ const perkPool = [
   },
   {
     id: "overcharge",
+    axis: PERK_AXIS.SPECIAL,
     name: "OVERCHARGE",
     description: "長押しジャンプの上限強化、重力を少し軽減",
     apply: () => {
@@ -237,6 +260,7 @@ function consumeKittenRevive() {
   if (!world.perks.buddyKitten || !world.kitten.big) {
     return false;
   }
+  world.kitten.active = false;
   world.kitten.big = false;
   world.kitten.growthPoints = 0;
   world.lives = Math.max(1, Math.ceil(world.perks.maxLives / 2));
@@ -397,9 +421,51 @@ function gainXp(amount) {
   }
 }
 
+function pickRandomPerk(candidates, pickedIds) {
+  const available = candidates.filter((perk) => !pickedIds.has(perk.id));
+  if (available.length <= 0) {
+    return null;
+  }
+  return available[Math.floor(Math.random() * available.length)];
+}
+
 function pickPerks(count) {
-  const shuffled = [...perkPool].sort(() => Math.random() - 0.5);
-  return shuffled.slice(0, count);
+  const axisOrder = [PERK_AXIS.MOBILITY, PERK_AXIS.BREAK, PERK_AXIS.VITAL];
+  const pickedIds = new Set();
+  const picks = [];
+
+  axisOrder.forEach((axis) => {
+    if (picks.length >= count) {
+      return;
+    }
+    const axisPerks = perkPool.filter((perk) => perk.axis === axis);
+    const selected = pickRandomPerk(axisPerks, pickedIds);
+    if (selected) {
+      picks.push(selected);
+      pickedIds.add(selected.id);
+    }
+  });
+
+  if (count >= 3 && Math.random() < 0.35) {
+    const specialPerk = pickRandomPerk(perkPool.filter((perk) => perk.axis === PERK_AXIS.SPECIAL), pickedIds);
+    if (specialPerk && picks.length > 0) {
+      const replaceIndex = Math.floor(Math.random() * picks.length);
+      pickedIds.delete(picks[replaceIndex].id);
+      picks[replaceIndex] = specialPerk;
+      pickedIds.add(specialPerk.id);
+    }
+  }
+
+  while (picks.length < count) {
+    const selected = pickRandomPerk(perkPool, pickedIds);
+    if (!selected) {
+      break;
+    }
+    picks.push(selected);
+    pickedIds.add(selected.id);
+  }
+
+  return picks.sort(() => Math.random() - 0.5);
 }
 
 function choosePerk(index) {
@@ -844,9 +910,13 @@ function drawLevelUpOverlay() {
     ctx.textAlign = "left";
     ctx.fillText(`[${index + 1}] ${perk.name}`, x + 14, y + 36);
 
+    ctx.fillStyle = "#aaa";
+    ctx.font = "16px 'Courier New', monospace";
+    ctx.fillText(`AXIS: ${perkAxisLabels[perk.axis]}`, x + 14, y + 62);
+
     ctx.fillStyle = "#fff";
     ctx.font = "18px 'Courier New', monospace";
-    wrapText(perk.description, x + 14, y + 76, cardW - 28, 30);
+    wrapText(perk.description, x + 14, y + 92, cardW - 28, 30);
   });
 }
 
