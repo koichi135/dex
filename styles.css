@@ -25,12 +25,13 @@ body {
 
 .canvas-wrap {
   width: 100%;
-  height: 100%;
+  aspect-ratio: 16 / 9;
 }
 
 canvas {
+  display: block;
   width: 100%;
-  height: 100%;
+  height: auto;
   image-rendering: pixelated;
   image-rendering: crisp-edges;
   border: 6px solid #fff;
@@ -52,7 +53,7 @@ canvas {
     width: 100vw;
     min-height: 100vh;
     aspect-ratio: auto;
-    grid-template-rows: minmax(0, 62vh) minmax(0, 38vh);
+    grid-template-rows: auto minmax(0, 1fr);
     align-items: stretch;
     gap: 8px;
     padding: 8px;
