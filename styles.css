@@ -103,6 +103,9 @@ canvas {
   .touch-controls {
     display: grid;
     width: 100%;
+    margin-top: auto;
+    align-self: end;
+    padding-bottom: calc(8px + env(safe-area-inset-bottom, 0px));
   }
 
   .touch-jump {
