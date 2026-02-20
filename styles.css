@@ -70,6 +70,32 @@ canvas {
 
 .touch-perk {
   min-height: 72px;
+  display: grid;
+  gap: 6px;
+  align-content: start;
+  text-align: left;
+  padding: 10px 12px;
+}
+
+.touch-perk-index {
+  color: #7ff;
+  font-size: clamp(14px, 3.4vw, 18px);
+}
+
+.touch-perk-name {
+  font-size: clamp(14px, 3.5vw, 20px);
+  line-height: 1.2;
+}
+
+.touch-perk-axis {
+  color: #aaa;
+  font-size: clamp(12px, 3.1vw, 16px);
+}
+
+.touch-perk-desc {
+  font-size: clamp(11px, 2.8vw, 15px);
+  line-height: 1.35;
+  letter-spacing: 0.03em;
 }
 
 .touch-perk:disabled {
@@ -118,6 +144,7 @@ canvas {
 
   .touch-perk-controls {
     order: -1;
+    grid-template-columns: 1fr;
   }
 
   .touch-jump {
