@@ -19,7 +19,7 @@ const minChargeFrames = 10;
 const groundY = canvas.height - 110;
 const invincibleDuration = 360;
 const stageResetInvincible = 96;
-const touchPerkSelectLockMs = 420;
+const touchPerkSelectLockMs = 1000;
 
 const PERK_AXIS = {
   MOBILITY: "mobility",
@@ -223,7 +223,6 @@ const world = {
   },
   perkRerolls: 1,
   perkTouchLockedUntil: 0,
-  levelUpTouchArmed: false,
   kitten: {
     active: false,
     x: 70,
@@ -274,7 +273,6 @@ function resetGame() {
   };
   world.perkRerolls = 1;
   world.perkTouchLockedUntil = 0;
-  world.levelUpTouchArmed = false;
   world.kitten = {
     active: false,
     x: 70,
@@ -369,7 +367,7 @@ function syncTouchControls() {
     return;
   }
 
-  const canSelectPerk = world.levelUpTouchArmed && Date.now() >= world.perkTouchLockedUntil;
+  const canSelectPerk = Date.now() >= world.perkTouchLockedUntil;
   touchPerkButtons.forEach((button, index) => {
     button.disabled = !canSelectPerk || !world.levelUpChoices[index];
     button.textContent = world.levelUpChoices[index] ? `PERK ${index + 1}` : "---";
@@ -378,7 +376,6 @@ function syncTouchControls() {
 
 function enterLevelUpState() {
   world.state = GAME_STATE.LEVEL_UP;
-  world.levelUpTouchArmed = false;
   world.perkTouchLockedUntil = Date.now() + touchPerkSelectLockMs;
   syncTouchControls();
 }
@@ -421,7 +418,6 @@ function onPressEnd() {
   player.isPressing = false;
 
   if (world.state === GAME_STATE.LEVEL_UP) {
-    world.levelUpTouchArmed = true;
     syncTouchControls();
     return;
   }
@@ -512,6 +508,19 @@ function createObstacle(offsetX = 0, sizeScale = 1) {
   });
 }
 
+function getObstacleDifficulty() {
+  const lv = world.level;
+  const phase = Math.max(0, lv - 1);
+  return {
+    minInterval: Math.max(32, 76 - phase * 2.8),
+    intervalRange: Math.max(18, 38 - phase * 0.7),
+    secondChance: Math.min(0.66, Math.max(0.08, phase * 0.055)),
+    thirdChance: Math.min(0.42, Math.max(0, (phase - 2) * 0.038)),
+    secondOffset: 84 + Math.min(90, phase * 7),
+    thirdOffset: 188 + Math.min(110, phase * 8),
+  };
+}
+
 function createHeartItem() {
   const yBase = groundY - 120 - Math.random() * 120;
   world.items.push({
@@ -597,6 +606,10 @@ function pickPerks(count) {
 }
 
 function choosePerk(index) {
+  if (world.state !== GAME_STATE.LEVEL_UP || Date.now() < world.perkTouchLockedUntil) {
+    return;
+  }
+
   const perk = world.levelUpChoices[index];
   if (!perk) {
     return;
@@ -637,12 +650,11 @@ function rerollPerkChoices() {
   world.perkRerolls -= 1;
   world.levelUpChoices = pickPerks(3);
   world.perkTouchLockedUntil = Date.now() + touchPerkSelectLockMs;
-  world.levelUpTouchArmed = false;
   syncTouchControls();
 }
 
 function selectPerkByPointer(e) {
-  if (!e) {
+  if (!e || Date.now() < world.perkTouchLockedUntil) {
     return;
   }
   const rect = canvas.getBoundingClientRect();
@@ -778,14 +790,15 @@ function update() {
 
   world.obstacleTimer -= 1;
   if (world.obstacleTimer <= 0) {
+    const difficulty = getObstacleDifficulty();
     createObstacle();
-    if (Math.random() < 0.24) {
-      createObstacle(68 + Math.random() * 40, 0.78 + Math.random() * 0.18);
+    if (Math.random() < difficulty.secondChance) {
+      createObstacle(difficulty.secondOffset + Math.random() * 42, 0.8 + Math.random() * 0.17);
     }
-    if (Math.random() < 0.12) {
-      createObstacle(160 + Math.random() * 48, 0.7 + Math.random() * 0.15);
+    if (Math.random() < difficulty.thirdChance) {
+      createObstacle(difficulty.thirdOffset + Math.random() * 56, 0.72 + Math.random() * 0.16);
     }
-    world.obstacleTimer = 48 + Math.random() * 34;
+    world.obstacleTimer = difficulty.minInterval + Math.random() * difficulty.intervalRange;
   }
 
   world.itemTimer -= 1;
