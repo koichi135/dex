@@ -1,5 +1,7 @@
 const canvas = document.getElementById("game");
 const touchJumpButton = document.getElementById("touch-jump");
+const touchPerkControls = document.getElementById("touch-perk-controls");
+const touchPerkButtons = Array.from(document.querySelectorAll(".touch-perk"));
 const ctx = canvas.getContext("2d");
 
 const GAME_STATE = {
@@ -17,6 +19,7 @@ const minChargeFrames = 10;
 const groundY = canvas.height - 110;
 const invincibleDuration = 360;
 const stageResetInvincible = 96;
+const touchPerkSelectLockMs = 420;
 
 const PERK_AXIS = {
   MOBILITY: "mobility",
@@ -219,6 +222,8 @@ const world = {
     comboScoreBonus: 0,
   },
   perkRerolls: 1,
+  perkTouchLockedUntil: 0,
+  levelUpTouchArmed: false,
   kitten: {
     active: false,
     x: 70,
@@ -268,6 +273,8 @@ function resetGame() {
     comboScoreBonus: 0,
   };
   world.perkRerolls = 1;
+  world.perkTouchLockedUntil = 0;
+  world.levelUpTouchArmed = false;
   world.kitten = {
     active: false,
     x: 70,
@@ -343,6 +350,37 @@ function consumeKittenRevive() {
 function startGame() {
   resetGame();
   world.state = GAME_STATE.PLAYING;
+  syncTouchControls();
+}
+
+function syncTouchControls() {
+  if (!touchJumpButton || !touchPerkControls) {
+    return;
+  }
+
+  const isLevelUp = world.state === GAME_STATE.LEVEL_UP;
+  touchJumpButton.hidden = isLevelUp;
+  touchPerkControls.hidden = !isLevelUp;
+
+  if (!isLevelUp) {
+    touchPerkButtons.forEach((button) => {
+      button.disabled = true;
+    });
+    return;
+  }
+
+  const canSelectPerk = world.levelUpTouchArmed && Date.now() >= world.perkTouchLockedUntil;
+  touchPerkButtons.forEach((button, index) => {
+    button.disabled = !canSelectPerk || !world.levelUpChoices[index];
+    button.textContent = world.levelUpChoices[index] ? `PERK ${index + 1}` : "---";
+  });
+}
+
+function enterLevelUpState() {
+  world.state = GAME_STATE.LEVEL_UP;
+  world.levelUpTouchArmed = false;
+  world.perkTouchLockedUntil = Date.now() + touchPerkSelectLockMs;
+  syncTouchControls();
 }
 
 function onPressStart(e) {
@@ -362,6 +400,7 @@ function onPressStart(e) {
 
   if (world.state === GAME_STATE.GAME_OVER) {
     world.state = GAME_STATE.TITLE;
+    syncTouchControls();
     return;
   }
 
@@ -380,6 +419,12 @@ function onPressStart(e) {
 
 function onPressEnd() {
   player.isPressing = false;
+
+  if (world.state === GAME_STATE.LEVEL_UP) {
+    world.levelUpTouchArmed = true;
+    syncTouchControls();
+    return;
+  }
 
   if (world.state !== GAME_STATE.PLAYING || !player.isCharging || !player.onGround) {
     return;
@@ -410,6 +455,19 @@ if (touchJumpButton) {
   });
   touchJumpButton.addEventListener("pointercancel", onPressEnd);
   touchJumpButton.addEventListener("pointerleave", onPressEnd);
+}
+
+if (touchPerkButtons.length > 0) {
+  touchPerkButtons.forEach((button) => {
+    button.addEventListener("pointerdown", (e) => {
+      e.preventDefault();
+      if (button.disabled) {
+        return;
+      }
+      const perkIndex = Number(button.dataset.perkIndex);
+      choosePerk(perkIndex);
+    });
+  });
 }
 
 const pressedKeys = new Set();
@@ -487,7 +545,7 @@ function gainXp(amount) {
     world.nextLevelXp = Math.floor(world.nextLevelXp * 1.35);
     world.levelUpChoices = pickPerks(3);
     addKittenGrowthPoint("level-up");
-    world.state = GAME_STATE.LEVEL_UP;
+    enterLevelUpState();
   }
 }
 
@@ -550,8 +608,8 @@ function choosePerk(index) {
   world.comboCount = 0;
   world.comboTimer = 0;
   world.state = GAME_STATE.PLAYING;
+  syncTouchControls();
 }
-
 
 function resetStageAfterPerk() {
   world.obstacles = [];
@@ -578,6 +636,9 @@ function rerollPerkChoices() {
   }
   world.perkRerolls -= 1;
   world.levelUpChoices = pickPerks(3);
+  world.perkTouchLockedUntil = Date.now() + touchPerkSelectLockMs;
+  world.levelUpTouchArmed = false;
+  syncTouchControls();
 }
 
 function selectPerkByPointer(e) {
@@ -690,7 +751,6 @@ function update() {
 
   world.score += 1;
   world.speed += 0.0007 + world.perks.speedRank * 0.00012;
-  const difficulty = Math.floor(world.score / 650);
   gainXp(1);
 
   if (player.isCharging && player.onGround) {
@@ -719,15 +779,13 @@ function update() {
   world.obstacleTimer -= 1;
   if (world.obstacleTimer <= 0) {
     createObstacle();
-    if (difficulty >= 1 && Math.random() < Math.min(0.65, 0.2 + difficulty * 0.08)) {
+    if (Math.random() < 0.24) {
       createObstacle(68 + Math.random() * 40, 0.78 + Math.random() * 0.18);
     }
-    if (difficulty >= 3 && Math.random() < 0.22) {
+    if (Math.random() < 0.12) {
       createObstacle(160 + Math.random() * 48, 0.7 + Math.random() * 0.15);
     }
-    const minInterval = Math.max(24, 56 - difficulty * 4.5);
-    const variableInterval = Math.max(18, 45 - difficulty * 2.5);
-    world.obstacleTimer = minInterval + Math.random() * variableInterval;
+    world.obstacleTimer = 48 + Math.random() * 34;
   }
 
   world.itemTimer -= 1;
@@ -1016,7 +1074,7 @@ function drawLevelUpOverlay() {
   ctx.fillText(`Rキーでリロール (${world.perkRerolls}回)`, canvas.width / 2, 142);
 
   const cardW = 260;
-  const cardH = 240;
+  const cardH = 264;
   const gap = 34;
   const startX = (canvas.width - cardW * 3 - gap * 2) / 2;
   const y = 170;
@@ -1042,26 +1100,30 @@ function drawLevelUpOverlay() {
     ctx.fillText(`AXIS: ${perkAxisLabels[perk.axis]}`, x + 14, y + 62);
 
     ctx.fillStyle = "#fff";
-    ctx.font = "18px 'Courier New', monospace";
-    wrapText(perk.description, x + 14, y + 92, cardW - 28, 30);
+    ctx.font = "16px 'Courier New', monospace";
+    wrapText(perk.description, x + 14, y + 92, cardW - 28, 24);
   });
 }
 
 function wrapText(text, x, y, maxWidth, lineHeight) {
-  const words = text.split(" ");
+  const tokens = text.includes(" ") ? text.split(/(\s+)/).filter(Boolean) : Array.from(text);
   let line = "";
   let lineIndex = 0;
-  for (let i = 0; i < words.length; i += 1) {
-    const testLine = `${line}${words[i]} `;
-    if (ctx.measureText(testLine).width > maxWidth && i > 0) {
-      ctx.fillText(line.trim(), x, y + lineIndex * lineHeight);
-      line = `${words[i]} `;
+
+  tokens.forEach((token) => {
+    const testLine = `${line}${token}`;
+    if (line && ctx.measureText(testLine).width > maxWidth) {
+      ctx.fillText(line.trimEnd(), x, y + lineIndex * lineHeight);
+      line = token.trimStart();
       lineIndex += 1;
     } else {
       line = testLine;
     }
+  });
+
+  if (line) {
+    ctx.fillText(line.trimEnd(), x, y + lineIndex * lineHeight);
   }
-  ctx.fillText(line.trim(), x, y + lineIndex * lineHeight);
 }
 
 function drawCenteredLines(lines, top, size = 34) {
@@ -1113,6 +1175,7 @@ function render() {
   }
 
   if (world.state === GAME_STATE.LEVEL_UP) {
+    syncTouchControls();
     drawLevelUpOverlay();
   }
 }
@@ -1132,4 +1195,5 @@ function loop() {
   requestAnimationFrame(loop);
 }
 
+syncTouchControls();
 loop();
