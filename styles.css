@@ -102,10 +102,16 @@ canvas {
 
   .touch-controls {
     display: grid;
+    grid-template-rows: auto auto;
+    gap: 8px;
     width: 100%;
     margin-top: auto;
     align-self: end;
     padding-bottom: calc(8px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .touch-perk-controls {
+    order: -1;
   }
 
   .touch-jump {
