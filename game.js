@@ -18,7 +18,7 @@ const maxChargeFrames = 28;
 const minChargeFrames = 10;
 const groundY = canvas.height - 110;
 const invincibleDuration = 360;
-const stageResetInvincible = 96;
+const stageResetInvincible = 72;
 const touchPerkSelectLockMs = 1000;
 
 const PERK_AXIS = {
@@ -181,10 +181,10 @@ const player = {
 };
 
 const world = {
-  speed: 7,
+  speed: 7.4,
   score: 0,
   best: 0,
-  lives: 3,
+  lives: 2,
   obstacles: [],
   items: [],
   powerups: [],
@@ -233,9 +233,9 @@ const world = {
 };
 
 function resetGame() {
-  world.speed = 7;
+  world.speed = 7.4;
   world.score = 0;
-  world.lives = 3;
+  world.lives = 2;
   world.obstacles = [];
   world.items = [];
   world.powerups = [];
@@ -512,10 +512,10 @@ function getObstacleDifficulty() {
   const lv = world.level;
   const phase = Math.max(0, lv - 1);
   return {
-    minInterval: Math.max(32, 76 - phase * 2.8),
-    intervalRange: Math.max(18, 38 - phase * 0.7),
-    secondChance: Math.min(0.66, Math.max(0.08, phase * 0.055)),
-    thirdChance: Math.min(0.42, Math.max(0, (phase - 2) * 0.038)),
+    minInterval: Math.max(24, 68 - phase * 3.2),
+    intervalRange: Math.max(14, 28 - phase * 0.8),
+    secondChance: Math.min(0.82, Math.max(0.2, phase * 0.07)),
+    thirdChance: Math.min(0.56, Math.max(0.05, (phase - 1) * 0.05)),
     secondOffset: 84 + Math.min(90, phase * 7),
     thirdOffset: 188 + Math.min(110, phase * 8),
   };
@@ -762,7 +762,7 @@ function update() {
   }
 
   world.score += 1;
-  world.speed += 0.0007 + world.perks.speedRank * 0.00012;
+  world.speed += 0.00095 + world.perks.speedRank * 0.00014;
   gainXp(1);
 
   if (player.isCharging && player.onGround) {
@@ -804,13 +804,13 @@ function update() {
   world.itemTimer -= 1;
   if (world.itemTimer <= 0) {
     createHeartItem();
-    world.itemTimer = 250 + Math.random() * 180;
+    world.itemTimer = 340 + Math.random() * 220;
   }
 
   world.powerupTimer -= 1;
   if (world.powerupTimer <= 0) {
     createInvincibleItem();
-    world.powerupTimer = 520 + Math.random() * 260;
+    world.powerupTimer = 680 + Math.random() * 320;
   }
 
   world.obstacles.forEach((obstacle) => {
