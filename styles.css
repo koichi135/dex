@@ -86,14 +86,16 @@ canvas {
     width: 100vw;
     min-height: 100vh;
     aspect-ratio: auto;
-    grid-template-rows: auto minmax(0, 1fr);
-    align-items: stretch;
-    gap: 10px;
+    grid-template-rows: minmax(0, 1fr);
+    align-items: start;
     padding: 8px;
+    padding-bottom: calc(172px + env(safe-area-inset-bottom, 0px));
   }
 
   .canvas-wrap {
     min-height: 0;
+    display: grid;
+    align-items: start;
   }
 
   canvas {
@@ -104,11 +106,14 @@ canvas {
     display: grid;
     grid-template-rows: auto auto;
     gap: 8px;
-    width: 100%;
-    margin-top: 0;
-    align-self: end;
-    transform: translateY(-12px);
-    padding-bottom: calc(6px + env(safe-area-inset-bottom, 0px));
+    position: fixed;
+    left: 8px;
+    right: 8px;
+    bottom: 0;
+    width: auto;
+    z-index: 20;
+    padding-bottom: calc(8px + env(safe-area-inset-bottom, 0px));
+    background: linear-gradient(180deg, rgba(0, 0, 0, 0), rgba(0, 0, 0, 0.88) 28%);
   }
 
   .touch-perk-controls {
