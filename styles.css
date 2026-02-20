@@ -39,8 +39,41 @@ canvas {
   touch-action: manipulation;
 }
 
-.touch-jump {
+.touch-controls {
   display: none;
+}
+
+.touch-jump,
+.touch-perk {
+  border: 3px solid #fff;
+  background: #151515;
+  color: #fff;
+  font-family: "Courier New", monospace;
+  font-size: clamp(18px, 4.8vw, 28px);
+  letter-spacing: 0.08em;
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.touch-jump:active,
+.touch-perk:active {
+  background: #2a2a2a;
+}
+
+.touch-perk-controls {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  width: 100%;
+}
+
+.touch-perk {
+  min-height: 72px;
+}
+
+.touch-perk:disabled {
+  opacity: 0.45;
 }
 
 @media (orientation: portrait) and (pointer: coarse) {
@@ -67,22 +100,15 @@ canvas {
     border-width: 4px;
   }
 
+  .touch-controls {
+    display: grid;
+    width: 100%;
+  }
+
   .touch-jump {
     display: grid;
     place-items: center;
     width: 100%;
-    border: 3px solid #fff;
-    background: #151515;
-    color: #fff;
-    font-family: "Courier New", monospace;
-    font-size: clamp(20px, 5vw, 28px);
-    letter-spacing: 0.08em;
-    touch-action: manipulation;
-    user-select: none;
-    -webkit-user-select: none;
-  }
-
-  .touch-jump:active {
-    background: #2a2a2a;
+    min-height: 84px;
   }
 }

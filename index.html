@@ -11,9 +11,16 @@
       <div class="canvas-wrap">
         <canvas id="game" width="960" height="540" aria-label="猫ランゲーム"></canvas>
       </div>
-      <button id="touch-jump" class="touch-jump" type="button" aria-label="ジャンプ操作エリア">
-        長押しでジャンプ
-      </button>
+      <div id="touch-controls" class="touch-controls" aria-live="polite">
+        <button id="touch-jump" class="touch-jump" type="button" aria-label="ジャンプ操作エリア">
+          長押しでジャンプ
+        </button>
+        <div id="touch-perk-controls" class="touch-perk-controls" aria-label="PERK選択ボタン" hidden>
+          <button type="button" class="touch-perk" data-perk-index="0">PERK 1</button>
+          <button type="button" class="touch-perk" data-perk-index="1">PERK 2</button>
+          <button type="button" class="touch-perk" data-perk-index="2">PERK 3</button>
+        </div>
+      </div>
     </main>
     <script src="game.js"></script>
   </body>
