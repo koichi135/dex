@@ -369,8 +369,39 @@ function syncTouchControls() {
 
   const canSelectPerk = Date.now() >= world.perkTouchLockedUntil;
   touchPerkButtons.forEach((button, index) => {
-    button.disabled = !canSelectPerk || !world.levelUpChoices[index];
-    button.textContent = world.levelUpChoices[index] ? `PERK ${index + 1}` : "---";
+    const perk = world.levelUpChoices[index];
+    const indexLabel = button.querySelector(".touch-perk-index");
+    const nameLabel = button.querySelector(".touch-perk-name");
+    const axisLabel = button.querySelector(".touch-perk-axis");
+    const descLabel = button.querySelector(".touch-perk-desc");
+
+    button.disabled = !canSelectPerk || !perk;
+
+    if (!perk) {
+      if (nameLabel) {
+        nameLabel.textContent = "---";
+      }
+      if (axisLabel) {
+        axisLabel.textContent = "---";
+      }
+      if (descLabel) {
+        descLabel.textContent = "---";
+      }
+      return;
+    }
+
+    if (indexLabel) {
+      indexLabel.textContent = `[${index + 1}]`;
+    }
+    if (nameLabel) {
+      nameLabel.textContent = perk.name;
+    }
+    if (axisLabel) {
+      axisLabel.textContent = `AXIS: ${perkAxisLabels[perk.axis]}`;
+    }
+    if (descLabel) {
+      descLabel.textContent = perk.description;
+    }
   });
 }
 
