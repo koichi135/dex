@@ -26,17 +26,27 @@ body {
 .canvas-wrap {
   width: 100%;
   aspect-ratio: 16 / 9;
+  position: relative;
+  border: 6px solid #fff;
+  background: #000;
 }
 
 canvas {
   display: block;
+  position: absolute;
+  inset: 0;
   width: 100%;
-  height: auto;
-  image-rendering: pixelated;
-  image-rendering: crisp-edges;
-  border: 6px solid #fff;
-  background: #000;
+  height: 100%;
   touch-action: manipulation;
+}
+
+#game-3d {
+  z-index: 0;
+}
+
+#game {
+  z-index: 1;
+  background: transparent;
 }
 
 .touch-controls {
@@ -124,7 +134,7 @@ canvas {
     align-items: start;
   }
 
-  canvas {
+  .canvas-wrap {
     border-width: 4px;
   }
 
