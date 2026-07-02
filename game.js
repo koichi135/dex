@@ -1,4 +1,7 @@
+import * as THREE from "./vendor/three.module.min.js";
+
 const canvas = document.getElementById("game");
+const glCanvas = document.getElementById("game-3d");
 const touchJumpButton = document.getElementById("touch-jump");
 const touchPerkControls = document.getElementById("touch-perk-controls");
 const touchPerkButtons = Array.from(document.querySelectorAll(".touch-perk"));
@@ -706,8 +709,10 @@ function spawnBurst(x, y, power, color = "#fff", spread = 1) {
     world.effects.push({
       x,
       y,
+      z: (Math.random() - 0.5) * 1.6,
       vx: Math.cos(angle) * speed,
       vy: Math.sin(angle) * speed - 0.6,
+      vz: (Math.random() - 0.5) * 0.12,
       life: 25 + Math.random() * 24,
       color,
       size: 2 + Math.random() * 4,
@@ -760,6 +765,7 @@ function updateEffects() {
   world.effects.forEach((particle) => {
     particle.x += particle.vx;
     particle.y += particle.vy;
+    particle.z += particle.vz;
     particle.vy += 0.06;
     particle.vx *= 0.98;
     particle.life -= 1;
@@ -926,15 +932,6 @@ function update() {
   player.frame += 0.25;
 }
 
-function drawEffects() {
-  world.effects.forEach((particle) => {
-    ctx.globalAlpha = Math.max(0, particle.life / 36);
-    ctx.fillStyle = particle.color;
-    ctx.fillRect(particle.x, particle.y, particle.size, particle.size);
-  });
-  ctx.globalAlpha = 1;
-}
-
 function intersects(a, b) {
   return (
     a.x < b.x + b.width &&
@@ -944,141 +941,466 @@ function intersects(a, b) {
   );
 }
 
-function drawBackground() {
-  ctx.fillStyle = "#000";
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
+// ---------------------------------------------------------------------------
+// 3D rendering (Three.js)
+// ---------------------------------------------------------------------------
 
-  ctx.fillStyle = "#1a1a1a";
-  for (let i = 0; i < canvas.width; i += 24) {
-    const h = 14 + ((i / 24) % 3) * 9;
-    ctx.fillRect((i - (world.score % 24)) | 0, groundY + player.height + 6 - h, 12, h);
-  }
+const WORLD_SCALE = 20;
+const groundLineY = groundY + player.height;
+const toX = (px) => (px - canvas.width / 2) / WORLD_SCALE;
+const toY = (py) => (groundLineY - py) / WORLD_SCALE;
 
-  ctx.fillStyle = "#fff";
-  ctx.fillRect(0, groundY + player.height, canvas.width, 3);
+const renderer = new THREE.WebGLRenderer({ canvas: glCanvas, antialias: true });
+renderer.setSize(canvas.width, canvas.height, false);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x070912);
+scene.fog = new THREE.Fog(0x070912, 34, 90);
+
+const camera = new THREE.PerspectiveCamera(50, canvas.width / canvas.height, 0.1, 220);
+camera.position.set(-4, 6.5, 26);
+camera.lookAt(-2, 4.2, 0);
+
+scene.add(new THREE.AmbientLight(0x8f9ab5, 1.1));
+const keyLight = new THREE.DirectionalLight(0xffffff, 2.0);
+keyLight.position.set(-14, 24, 18);
+scene.add(keyLight);
+const rimLight = new THREE.DirectionalLight(0x77ffff, 0.6);
+rimLight.position.set(20, 8, -14);
+scene.add(rimLight);
+
+let scrollPx = 0;
+let renderTick = 0;
+
+// --- ground ---
+const groundPlane = new THREE.Mesh(
+  new THREE.PlaneGeometry(260, 60),
+  new THREE.MeshLambertMaterial({ color: 0x10131d })
+);
+groundPlane.rotation.x = -Math.PI / 2;
+groundPlane.position.set(0, -0.02, -12);
+scene.add(groundPlane);
+
+const GRID_SPACING = 2.4;
+const GRID_COUNT = 50;
+const gridLines = [];
+const gridLineMat = new THREE.MeshBasicMaterial({ color: 0x2a3147 });
+const gridLineGeo = new THREE.BoxGeometry(0.06, 0.02, 36);
+for (let i = 0; i < GRID_COUNT; i += 1) {
+  const line = new THREE.Mesh(gridLineGeo, gridLineMat);
+  line.position.set(0, 0, -4);
+  scene.add(line);
+  gridLines.push(line);
 }
 
-function drawCat() {
-  const x = player.x;
-  const y = player.y;
-  const runPhase = Math.floor(player.frame) % 2;
+const laneEdge = new THREE.Mesh(
+  new THREE.BoxGeometry(240, 0.06, 0.14),
+  new THREE.MeshBasicMaterial({ color: 0xe8ecf5 })
+);
+laneEdge.position.set(0, 0.03, 3.4);
+scene.add(laneEdge);
 
-  if (world.invincibleTimer > 0) {
-    ctx.fillStyle = world.invincibleTimer % 8 < 4 ? "#fff" : "#7ff";
-  } else {
-    ctx.fillStyle = world.flashTime > 0 ? "#888" : "#fff";
+// --- skyline (parallax background blocks) ---
+const skyline = [];
+const skylineMat = new THREE.MeshLambertMaterial({ color: 0x1b2132 });
+for (let i = 0; i < 26; i += 1) {
+  const w = 2 + Math.random() * 3;
+  const h = 2 + Math.random() * 7;
+  const block = new THREE.Mesh(new THREE.BoxGeometry(w, 1, 2.4), skylineMat);
+  block.scale.y = h;
+  block.position.set(-64 + i * 5 + Math.random() * 2, h / 2, -16 - Math.random() * 8);
+  scene.add(block);
+  skyline.push(block);
+}
+
+// --- stars in the sky ---
+{
+  const starPositions = [];
+  for (let i = 0; i < 240; i += 1) {
+    starPositions.push(
+      (Math.random() - 0.5) * 220,
+      6 + Math.random() * 60,
+      -30 - Math.random() * 60
+    );
   }
+  const starGeo = new THREE.BufferGeometry();
+  starGeo.setAttribute("position", new THREE.Float32BufferAttribute(starPositions, 3));
+  const stars = new THREE.Points(
+    starGeo,
+    new THREE.PointsMaterial({ color: 0xaebadb, size: 0.35, sizeAttenuation: true, fog: false })
+  );
+  scene.add(stars);
+}
 
-  ctx.fillRect(x + 6, y + 18, 40, 26);
-  ctx.fillRect(x + 12, y + 4, 28, 18);
+// --- cat ---
+const catBodyMat = new THREE.MeshLambertMaterial({ color: 0xffffff });
+const catDarkMat = new THREE.MeshLambertMaterial({ color: 0x11131a });
 
-  // ears
-  ctx.fillRect(x + 12, y, 8, 8);
-  ctx.fillRect(x + 32, y, 8, 8);
+function buildCat(scale, bodyMat) {
+  const cat = new THREE.Group();
 
-  // legs
-  const legOffset = runPhase === 0 ? 0 : 4;
-  ctx.fillRect(x + 10, y + 44, 8, 8 + legOffset);
-  ctx.fillRect(x + 34, y + 44, 8, 12 - legOffset);
+  const body = new THREE.Mesh(new THREE.BoxGeometry(2.0, 1.15, 1.05), bodyMat);
+  body.position.set(-0.1, 1.15, 0);
+  cat.add(body);
 
-  // face details
-  ctx.fillStyle = "#000";
-  ctx.fillRect(x + 18, y + 10, 4, 4);
-  ctx.fillRect(x + 30, y + 10, 4, 4);
-  ctx.fillRect(x + 24, y + 14, 4, 3);
+  const head = new THREE.Mesh(new THREE.BoxGeometry(1.15, 0.95, 0.95), bodyMat);
+  head.position.set(0.95, 1.95, 0);
+  cat.add(head);
 
-  // tail
-  ctx.fillStyle = world.invincibleTimer > 0 ? "#7ff" : "#fff";
-  ctx.fillRect(x, y + 24, 8, 5);
+  const earGeo = new THREE.BoxGeometry(0.3, 0.34, 0.2);
+  const earL = new THREE.Mesh(earGeo, bodyMat);
+  earL.position.set(0.8, 2.55, 0.3);
+  cat.add(earL);
+  const earR = new THREE.Mesh(earGeo, bodyMat);
+  earR.position.set(0.8, 2.55, -0.3);
+  cat.add(earR);
+
+  const eyeGeo = new THREE.BoxGeometry(0.08, 0.18, 0.16);
+  const eyeL = new THREE.Mesh(eyeGeo, catDarkMat);
+  eyeL.position.set(1.54, 2.05, 0.26);
+  cat.add(eyeL);
+  const eyeR = new THREE.Mesh(eyeGeo, catDarkMat);
+  eyeR.position.set(1.54, 2.05, -0.26);
+  cat.add(eyeR);
+
+  const nose = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.12, 0.2), catDarkMat);
+  nose.position.set(1.54, 1.78, 0);
+  cat.add(nose);
+
+  const tail = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.24, 0.24), bodyMat);
+  tail.geometry.translate(-0.45, 0, 0);
+  tail.position.set(-1.1, 1.5, 0);
+  tail.rotation.z = 0.5;
+  cat.add(tail);
+  cat.userData.tail = tail;
+
+  const legGeo = new THREE.BoxGeometry(0.34, 0.68, 0.3);
+  legGeo.translate(0, -0.34, 0);
+  const legs = [];
+  [
+    [0.55, 0.32],
+    [0.55, -0.32],
+    [-0.75, 0.32],
+    [-0.75, -0.32],
+  ].forEach(([lx, lz]) => {
+    const leg = new THREE.Mesh(legGeo, bodyMat);
+    leg.position.set(lx, 0.68, lz);
+    cat.add(leg);
+    legs.push(leg);
+  });
+  cat.userData.legs = legs;
+
+  cat.scale.setScalar(scale);
+  return cat;
+}
+
+const catGroup = buildCat(1, catBodyMat);
+scene.add(catGroup);
+
+const kittenBodyMat = new THREE.MeshLambertMaterial({ color: 0xdddddd });
+const kittenGroup = buildCat(0.55, kittenBodyMat);
+kittenGroup.visible = false;
+scene.add(kittenGroup);
+
+function updateCatPose(group, gamePlayerLike, runSpeed) {
+  const legs = group.userData.legs;
+  const tail = group.userData.tail;
+  const phase = gamePlayerLike.frame * 1.4;
+  legs.forEach((leg, i) => {
+    const dir = i % 2 === 0 ? 1 : -1;
+    leg.rotation.z = Math.sin(phase + (i < 2 ? 0 : Math.PI)) * 0.55 * dir * runSpeed;
+  });
+  if (tail) {
+    tail.rotation.z = 0.5 + Math.sin(phase * 0.5) * 0.18;
+  }
+}
+
+function updateCatMesh() {
+  const cx = toX(player.x + player.width / 2);
+  const cy = toY(player.y + player.height);
+  catGroup.position.set(cx, Math.max(0, cy), 0);
+
+  const airborne = !player.onGround;
+  catGroup.rotation.z = airborne ? Math.max(-0.35, Math.min(0.35, -player.vy * 0.028)) : 0;
 
   if (player.isCharging && player.onGround) {
-    ctx.fillStyle = "#fff";
-    const gaugeW = 42;
-    ctx.strokeStyle = "#fff";
-    ctx.strokeRect(x + 5, y - 12, gaugeW, 5);
-    ctx.fillRect(x + 6, y - 11, (gaugeW - 2) * (player.chargeFrames / getChargeFrameLimit()), 3);
+    const rate = player.chargeFrames / getChargeFrameLimit();
+    catGroup.scale.set(1 + rate * 0.12, 1 - rate * 0.22, 1 + rate * 0.12);
+  } else {
+    catGroup.scale.setScalar(1);
+  }
+
+  updateCatPose(catGroup, player, player.onGround ? 1 : 0.35);
+
+  if (world.invincibleTimer > 0) {
+    catBodyMat.color.set(world.invincibleTimer % 8 < 4 ? "#ffffff" : "#77ffff");
+    catBodyMat.emissive.set(world.invincibleTimer % 8 < 4 ? "#223344" : "#116677");
+  } else if (world.flashTime > 0) {
+    catBodyMat.color.set("#888888");
+    catBodyMat.emissive.set("#000000");
+  } else {
+    catBodyMat.color.set("#ffffff");
+    catBodyMat.emissive.set("#000000");
   }
 }
 
-function drawBuddyKitten() {
+function updateKittenMesh() {
+  kittenGroup.visible = world.kitten.active;
   if (!world.kitten.active) {
     return;
   }
-
-  const kittenSize = world.kitten.big ? player.width : 30;
-  const x = world.kitten.x;
-  const y = world.kitten.y;
-  const bodyH = world.kitten.big ? 26 : 16;
-  const headW = world.kitten.big ? 28 : 16;
-  const headH = world.kitten.big ? 18 : 12;
-
-  ctx.fillStyle = world.kitten.big ? "#7ff" : "#ddd";
-  ctx.fillRect(x + 4, y + 12, kittenSize - 8, bodyH);
-  ctx.fillRect(x + 8, y + 2, headW, headH);
-  ctx.fillRect(x + 8, y - 2, 6, 6);
-  ctx.fillRect(x + headW + 2, y - 2, 6, 6);
-
-  ctx.fillStyle = "#000";
-  ctx.fillRect(x + 12, y + 7, 3, 3);
-  ctx.fillRect(x + 20, y + 7, 3, 3);
-
-  if (!world.kitten.big) {
-    ctx.fillStyle = "#fff";
-    ctx.font = "14px 'Courier New', monospace";
-    ctx.textAlign = "left";
-    ctx.fillText(`${world.kitten.growthPoints}/3`, x, y - 8);
-  }
+  const size = world.kitten.big ? player.width : 30;
+  const cx = toX(world.kitten.x + size / 2);
+  const cy = toY(world.kitten.y + size);
+  kittenGroup.position.set(cx, Math.max(0, cy), 1.4);
+  kittenGroup.scale.setScalar(world.kitten.big ? 0.95 : 0.55);
+  kittenBodyMat.color.set(world.kitten.big ? "#77ffff" : "#dddddd");
+  updateCatPose(kittenGroup, player, 1);
 }
 
-function drawCucumber(obstacle) {
-  ctx.fillStyle = "#fff";
-  ctx.fillRect(obstacle.x, obstacle.y, obstacle.width, obstacle.height);
+// --- obstacles (cucumbers) ---
+const cucumberBodyMat = new THREE.MeshLambertMaterial({ color: 0x9fe08a });
+const cucumberStripeMat = new THREE.MeshLambertMaterial({ color: 0x2f6b33 });
 
-  ctx.fillStyle = "#000";
-  const cut = Math.max(4, Math.floor(obstacle.width / 5));
-  ctx.fillRect(obstacle.x + cut, obstacle.y + 6, 4, obstacle.height - 12);
-  ctx.fillRect(obstacle.x + cut * 2, obstacle.y + 4, 4, obstacle.height - 8);
-  ctx.fillRect(obstacle.x + cut * 3, obstacle.y + 6, 4, obstacle.height - 12);
+function createCucumberMesh() {
+  const group = new THREE.Group();
+  const body = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 0.8), cucumberBodyMat);
+  group.add(body);
+  const stripeGeo = new THREE.BoxGeometry(0.14, 0.8, 0.84);
+  [-0.26, 0, 0.26].forEach((sx, i) => {
+    const stripe = new THREE.Mesh(stripeGeo, cucumberStripeMat);
+    stripe.position.set(sx, i === 1 ? 0.06 : -0.02, 0);
+    group.add(stripe);
+  });
+  const cap = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.16, 0.34), cucumberStripeMat);
+  cap.position.set(0, 0.58, 0);
+  group.add(cap);
+  return group;
 }
 
-function drawHeartItem(item) {
-  const x = item.x;
-  const y = item.y;
-
-  ctx.fillStyle = "#fff";
-  ctx.beginPath();
-  ctx.moveTo(x + item.width / 2, y + item.height);
-  ctx.bezierCurveTo(x - 4, y + item.height * 0.62, x + 2, y + item.height * 0.16, x + item.width * 0.3, y + item.height * 0.25);
-  ctx.bezierCurveTo(x + item.width * 0.44, y - 2, x + item.width * 0.56, y - 2, x + item.width * 0.7, y + item.height * 0.25);
-  ctx.bezierCurveTo(x + item.width - 2, y + item.height * 0.16, x + item.width + 4, y + item.height * 0.62, x + item.width / 2, y + item.height);
-  ctx.fill();
+function updateCucumberMesh(obstacle, mesh) {
+  const w = obstacle.width / WORLD_SCALE;
+  const h = obstacle.height / WORLD_SCALE;
+  mesh.scale.set(w, h, w);
+  mesh.position.set(
+    toX(obstacle.x + obstacle.width / 2),
+    toY(obstacle.y + obstacle.height) + h / 2,
+    0
+  );
+  mesh.rotation.y = Math.sin(renderTick * 0.02 + obstacle.x * 0.01) * 0.25;
 }
 
-function drawInvincibleItem(item) {
-  const cx = item.x + item.width / 2;
-  const cy = item.y + item.height / 2;
-  const outer = item.width / 2;
-  const inner = outer * 0.44;
+// --- heart items ---
+function makeHeartGeometry() {
+  const shape = new THREE.Shape();
+  shape.moveTo(0, -0.5);
+  shape.bezierCurveTo(-0.62, -0.12, -0.55, 0.42, -0.25, 0.42);
+  shape.bezierCurveTo(-0.08, 0.42, 0, 0.3, 0, 0.18);
+  shape.bezierCurveTo(0, 0.3, 0.08, 0.42, 0.25, 0.42);
+  shape.bezierCurveTo(0.55, 0.42, 0.62, -0.12, 0, -0.5);
+  return new THREE.ExtrudeGeometry(shape, {
+    depth: 0.3,
+    bevelEnabled: true,
+    bevelThickness: 0.06,
+    bevelSize: 0.06,
+    bevelSegments: 2,
+  });
+}
 
-  ctx.fillStyle = "#7ff";
-  ctx.beginPath();
+const heartGeo = makeHeartGeometry();
+heartGeo.center();
+const heartMat = new THREE.MeshLambertMaterial({ color: 0xff5f87, emissive: 0x551122 });
+
+function createHeartMesh() {
+  return new THREE.Mesh(heartGeo, heartMat);
+}
+
+function updateHeartMesh(item, mesh) {
+  const s = item.width / WORLD_SCALE;
+  mesh.scale.setScalar(s * 1.1);
+  mesh.position.set(
+    toX(item.x + item.width / 2),
+    toY(item.y + item.height / 2) + Math.sin(renderTick * 0.06 + item.x * 0.02) * 0.2,
+    0
+  );
+  mesh.rotation.y = renderTick * 0.035;
+}
+
+// --- invincible star items ---
+function makeStarGeometry() {
+  const shape = new THREE.Shape();
   for (let i = 0; i < 10; i += 1) {
     const angle = -Math.PI / 2 + (Math.PI * i) / 5;
-    const radius = i % 2 === 0 ? outer : inner;
-    const px = cx + Math.cos(angle) * radius;
-    const py = cy + Math.sin(angle) * radius;
+    const radius = i % 2 === 0 ? 0.5 : 0.22;
+    const px = Math.cos(angle) * radius;
+    const py = -Math.sin(angle) * radius;
     if (i === 0) {
-      ctx.moveTo(px, py);
+      shape.moveTo(px, py);
     } else {
-      ctx.lineTo(px, py);
+      shape.lineTo(px, py);
     }
   }
-  ctx.closePath();
-  ctx.fill();
+  shape.closePath();
+  return new THREE.ExtrudeGeometry(shape, {
+    depth: 0.24,
+    bevelEnabled: true,
+    bevelThickness: 0.05,
+    bevelSize: 0.05,
+    bevelSegments: 2,
+  });
+}
 
-  ctx.fillStyle = "#000";
-  ctx.fillRect(cx - 2, cy - 6, 4, 12);
-  ctx.fillRect(cx - 6, cy - 2, 12, 4);
+const starGeo = makeStarGeometry();
+starGeo.center();
+const starMat = new THREE.MeshLambertMaterial({ color: 0x77ffff, emissive: 0x117788 });
+
+function createStarMesh() {
+  return new THREE.Mesh(starGeo, starMat);
+}
+
+function updateStarMesh(item, mesh) {
+  const s = item.width / WORLD_SCALE;
+  mesh.scale.setScalar(s * 1.2);
+  mesh.position.set(
+    toX(item.x + item.width / 2),
+    toY(item.y + item.height / 2) + Math.sin(renderTick * 0.07 + item.x * 0.02) * 0.22,
+    0
+  );
+  mesh.rotation.y = renderTick * 0.05;
+}
+
+// --- generic game-object <-> mesh sync ---
+const obstacleMeshes = new Map();
+const heartMeshes = new Map();
+const starMeshes = new Map();
+
+function syncMeshes(list, map, factory, updateFn) {
+  const seen = new Set();
+  list.forEach((obj) => {
+    let mesh = map.get(obj);
+    if (!mesh) {
+      mesh = factory(obj);
+      scene.add(mesh);
+      map.set(obj, mesh);
+    }
+    seen.add(obj);
+    updateFn(obj, mesh);
+  });
+  map.forEach((mesh, obj) => {
+    if (!seen.has(obj)) {
+      scene.remove(mesh);
+      map.delete(obj);
+    }
+  });
+}
+
+// --- particles ---
+const PARTICLE_POOL_SIZE = 320;
+const particlePool = [];
+const particleGeo = new THREE.BoxGeometry(1, 1, 1);
+for (let i = 0; i < PARTICLE_POOL_SIZE; i += 1) {
+  const mesh = new THREE.Mesh(
+    particleGeo,
+    new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 1 })
+  );
+  mesh.visible = false;
+  scene.add(mesh);
+  particlePool.push(mesh);
+}
+
+function updateParticles3D() {
+  for (let i = 0; i < PARTICLE_POOL_SIZE; i += 1) {
+    const mesh = particlePool[i];
+    const particle = world.effects[i];
+    if (!particle) {
+      mesh.visible = false;
+      continue;
+    }
+    mesh.visible = true;
+    const s = particle.size / WORLD_SCALE;
+    mesh.scale.setScalar(Math.max(0.05, s));
+    mesh.position.set(toX(particle.x), toY(particle.y), particle.z);
+    mesh.rotation.set(particle.life * 0.15, particle.life * 0.11, 0);
+    mesh.material.color.setStyle(particle.color);
+    mesh.material.opacity = Math.max(0, particle.life / 36);
+  }
+}
+
+// --- scrolling scenery ---
+function updateScenery() {
+  const offset = -((scrollPx / WORLD_SCALE) % GRID_SPACING);
+  for (let i = 0; i < GRID_COUNT; i += 1) {
+    gridLines[i].position.x = -GRID_SPACING * (GRID_COUNT / 2) + i * GRID_SPACING + offset;
+  }
+
+  if (world.state === GAME_STATE.PLAYING) {
+    const parallax = (world.speed / WORLD_SCALE) * 0.35;
+    skyline.forEach((block) => {
+      block.position.x -= parallax;
+      if (block.position.x < -66) {
+        block.position.x += 132;
+        const h = 2 + Math.random() * 7;
+        block.scale.y = h;
+        block.position.y = h / 2;
+      }
+    });
+  }
+}
+
+function render3D() {
+  renderTick += 1;
+  if (world.state === GAME_STATE.PLAYING) {
+    scrollPx += world.speed;
+  }
+
+  updateScenery();
+  updateCatMesh();
+  updateKittenMesh();
+  syncMeshes(world.obstacles, obstacleMeshes, createCucumberMesh, updateCucumberMesh);
+  syncMeshes(world.items, heartMeshes, createHeartMesh, updateHeartMesh);
+  syncMeshes(world.powerups, starMeshes, createStarMesh, updateStarMesh);
+  updateParticles3D();
+
+  renderer.render(scene, camera);
+}
+
+const projectionVector = new THREE.Vector3();
+
+function projectToScreen(x, y, z) {
+  projectionVector.set(x, y, z).project(camera);
+  return {
+    x: (projectionVector.x * 0.5 + 0.5) * canvas.width,
+    y: (-projectionVector.y * 0.5 + 0.5) * canvas.height,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// HUD / overlays (2D canvas on top of the WebGL canvas)
+// ---------------------------------------------------------------------------
+
+function drawPlayerOverlays() {
+  if (world.state === GAME_STATE.PLAYING && player.isCharging && player.onGround) {
+    const p = projectToScreen(catGroup.position.x, catGroup.position.y + 3.3, 0);
+    const gaugeW = 64;
+    ctx.strokeStyle = "#fff";
+    ctx.lineWidth = 1;
+    ctx.strokeRect(p.x - gaugeW / 2, p.y - 8, gaugeW, 8);
+    ctx.fillStyle = "#7ff";
+    ctx.fillRect(
+      p.x - gaugeW / 2 + 1,
+      p.y - 7,
+      (gaugeW - 2) * (player.chargeFrames / getChargeFrameLimit()),
+      6
+    );
+  }
+
+  if (world.kitten.active && !world.kitten.big) {
+    const p = projectToScreen(kittenGroup.position.x, kittenGroup.position.y + 2.2, kittenGroup.position.z);
+    ctx.fillStyle = "#fff";
+    ctx.font = "14px 'Courier New', monospace";
+    ctx.textAlign = "center";
+    ctx.fillText(`${world.kitten.growthPoints}/3`, p.x, p.y);
+  }
 }
 
 function drawHUD() {
@@ -1180,7 +1502,10 @@ function drawCenteredLines(lines, top, size = 34) {
 }
 
 function drawTitle() {
-  drawCenteredLines(["NEKO RUNNER", "HOLD TO CHARGE JUMP", "TAP TO START"], 170);
+  ctx.fillStyle = "rgba(0,0,0,0.55)";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  drawCenteredLines(["NEKO RUNNER 3D", "HOLD TO CHARGE JUMP", "TAP TO START"], 170);
   ctx.font = "22px 'Courier New', monospace";
   ctx.fillStyle = "#fff";
   ctx.textAlign = "center";
@@ -1189,6 +1514,9 @@ function drawTitle() {
 }
 
 function drawGameOver() {
+  ctx.fillStyle = "rgba(0,0,0,0.6)";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
   drawCenteredLines(["GAME OVER"], 185, 44);
   ctx.font = "26px 'Courier New', monospace";
   ctx.fillStyle = "#fff";
@@ -1200,14 +1528,10 @@ function drawGameOver() {
 }
 
 function render() {
-  drawBackground();
+  render3D();
 
-  world.obstacles.forEach(drawCucumber);
-  world.items.forEach(drawHeartItem);
-  world.powerups.forEach(drawInvincibleItem);
-  drawEffects();
-  drawBuddyKitten();
-  drawCat();
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  drawPlayerOverlays();
   drawHUD();
 
   if (world.state === GAME_STATE.TITLE) {
