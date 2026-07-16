@@ -3,39 +3,129 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>NEKO RUNNER 3D</title>
+    <title>NEKO RUNNER — ネオンの街を駆け抜けろ</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@600;700&family=Outfit:wght@400;600;800&display=swap"
+      rel="stylesheet"
+    />
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
     <main class="game-shell">
-      <div class="canvas-wrap">
+      <div class="stage" id="stage">
         <canvas id="game-3d" width="960" height="540" aria-hidden="true"></canvas>
         <canvas id="game" width="960" height="540" aria-label="猫ランゲーム"></canvas>
+        <div class="vignette" id="damage-vignette" aria-hidden="true"></div>
+
+        <div class="ui-layer">
+          <header id="hud" class="hud" hidden>
+            <div class="hud-left">
+              <p class="hud-label">SCORE</p>
+              <p class="hud-score" id="hud-score">0</p>
+              <div class="lives" id="hud-lives" aria-label="ライフ"></div>
+              <div class="buffs" id="hud-buffs"></div>
+            </div>
+            <div class="hud-right">
+              <div class="level-row">
+                <span class="level-badge" id="hud-level">LV 1</span>
+                <div class="xp-bar" aria-hidden="true">
+                  <div class="xp-fill" id="hud-xp"></div>
+                </div>
+              </div>
+              <p class="xp-text" id="hud-xp-text">XP 0 / 420</p>
+            </div>
+            <div class="combo" id="hud-combo" hidden>
+              <span class="combo-mult" id="combo-mult">×1.25</span>
+              <span class="combo-count" id="combo-count">3 CHAIN</span>
+            </div>
+          </header>
+
+          <section id="screen-title" class="screen title-screen">
+            <p class="title-kicker">CHARGE &amp; JUMP ACTION</p>
+            <h1 class="logo">
+              <span class="logo-neko">NEKO</span>
+              <span class="logo-runner">RUNNER</span>
+            </h1>
+            <p class="tagline">きゅうりを飛び越え、ネオンの街を駆け抜けろ</p>
+            <div class="hints">
+              <div class="hint">
+                <span class="hint-key">HOLD</span>
+                <span class="hint-text">長押しチャージで大ジャンプ</span>
+              </div>
+              <div class="hint">
+                <span class="hint-key heart">♥</span>
+                <span class="hint-text">ハートでライフ回復</span>
+              </div>
+              <div class="hint">
+                <span class="hint-key star">★</span>
+                <span class="hint-text">スターで無敵ダッシュ</span>
+              </div>
+            </div>
+            <p class="press-start">TAP / SPACE TO START</p>
+            <p class="title-best" id="title-best" hidden>BEST 0</p>
+          </section>
+
+          <section id="screen-levelup" class="screen levelup-screen" hidden>
+            <div class="levelup-panel">
+              <p class="levelup-kicker">LEVEL UP!</p>
+              <h2 class="levelup-title" id="levelup-level">LV 2</h2>
+              <p class="levelup-sub">PERKを1つ選んで進化せよ</p>
+              <div class="perk-cards" id="perk-cards">
+                <button type="button" class="perk-card" data-perk-index="0">
+                  <span class="perk-key">1</span>
+                  <span class="perk-name">---</span>
+                  <span class="perk-axis">---</span>
+                  <span class="perk-desc">---</span>
+                </button>
+                <button type="button" class="perk-card" data-perk-index="1">
+                  <span class="perk-key">2</span>
+                  <span class="perk-name">---</span>
+                  <span class="perk-axis">---</span>
+                  <span class="perk-desc">---</span>
+                </button>
+                <button type="button" class="perk-card" data-perk-index="2">
+                  <span class="perk-key">3</span>
+                  <span class="perk-name">---</span>
+                  <span class="perk-axis">---</span>
+                  <span class="perk-desc">---</span>
+                </button>
+              </div>
+              <button type="button" class="reroll-btn" id="perk-reroll">
+                <span class="reroll-icon">↻</span> REROLL
+                <span class="reroll-count" id="reroll-count">×1</span>
+                <kbd>R</kbd>
+              </button>
+            </div>
+          </section>
+
+          <section id="screen-gameover" class="screen gameover-screen" hidden>
+            <div class="gameover-panel">
+              <h2 class="gameover-title">GAME OVER</h2>
+              <p class="new-record" id="new-record" hidden>★ NEW RECORD ★</p>
+              <div class="result-rows">
+                <div class="result-row">
+                  <span>SCORE</span><strong id="go-score">0</strong>
+                </div>
+                <div class="result-row">
+                  <span>BEST</span><strong id="go-best">0</strong>
+                </div>
+                <div class="result-row">
+                  <span>LEVEL</span><strong id="go-level">1</strong>
+                </div>
+              </div>
+              <p class="press-start">TAP TO RETURN</p>
+            </div>
+          </section>
+        </div>
       </div>
+
       <div id="touch-controls" class="touch-controls" aria-live="polite">
         <button id="touch-jump" class="touch-jump" type="button" aria-label="ジャンプ操作エリア">
-          長押しでジャンプ
+          <span class="touch-jump-en">HOLD TO JUMP</span>
+          <span class="touch-jump-jp">長押しチャージでジャンプ</span>
         </button>
-        <div id="touch-perk-controls" class="touch-perk-controls" aria-label="PERK選択パネル" hidden>
-          <button type="button" class="touch-perk" data-perk-index="0">
-            <span class="touch-perk-index">[1]</span>
-            <span class="touch-perk-name">---</span>
-            <span class="touch-perk-axis">---</span>
-            <span class="touch-perk-desc">---</span>
-          </button>
-          <button type="button" class="touch-perk" data-perk-index="1">
-            <span class="touch-perk-index">[2]</span>
-            <span class="touch-perk-name">---</span>
-            <span class="touch-perk-axis">---</span>
-            <span class="touch-perk-desc">---</span>
-          </button>
-          <button type="button" class="touch-perk" data-perk-index="2">
-            <span class="touch-perk-index">[3]</span>
-            <span class="touch-perk-name">---</span>
-            <span class="touch-perk-axis">---</span>
-            <span class="touch-perk-desc">---</span>
-          </button>
-        </div>
       </div>
     </main>
     <script type="module" src="game.js"></script>
